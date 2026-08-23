@@ -1,7 +1,11 @@
 package org.aetheris.app.di
 
+import org.aetheris.app.domain.usecase.CalculateDistanceUseCase
+import org.aetheris.app.domain.usecase.EstimateSpatialDimensionsUseCase
+import org.koin.core.module.dsl.factoryOf
 import org.koin.dsl.module
 
 val appModule = module {
-    // Registraremos os repositórios, sensores e UseCases aqui nos próximos passos
+    factoryOf(::CalculateDistanceUseCase)
+    factoryOf(::EstimateSpatialDimensionsUseCase)
 }

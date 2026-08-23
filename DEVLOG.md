@@ -4,23 +4,37 @@
 
 ---
 
+## 📅 [Dia 02] - 2026-08-23: Núcleo Matemático de Domínio e Testes Unitários
+
+### 🎯 Objetivo do Dia
+- [x] Modelagem de entidades matemáticas em Kotlin puro (`Point3D`, `DistanceMeasurement`, `BoundingBox3D`, `MassEstimate`).
+- [x] Implementação dos casos de uso de medição espacial (`CalculateDistanceUseCase`, `EstimateSpatialDimensionsUseCase`).
+- [x] Configuração da injeção de dependência dos UseCases via Koin.
+- [x] Cobertura de testes unitários com JUnit 4 e Google Truth na JVM (execução rápida e isolada de Android).
+
+### 📐 Decisões de Arquitetura (ADR)
+- **ADR-003: Modelagem de Incerteza Dinâmica**
+  - **Contexto:** Sensores ópticos perdem precisão conforme a distância aumenta e a iluminação varia.
+  - **Decisão:** O cálculo de distância retorna um objeto `DistanceMeasurement` contendo o valor medido e a margem de erro estimada ($\pm\sigma$), em vez de um `Float` primitivo.
+- **ADR-004: Cálculo de Dimensões por Bounding Box AABB**
+  - **Contexto:** Necessidade de inferir largura, altura, profundidade e volume a partir de uma nuvem esparsa de pontos tridimensionais.
+  - **Decisão:** Implementação de cálculo de *Axis-Aligned Bounding Box* (AABB) direto na camada de domínio.
+
+### 🧪 Desafios & Soluções
+- *Desafio:* Garantir que a lógica geométrica e vetorial seja completamente agnóstica de SDK ou bibliotecas gráficas pesadas.
+- *Solução:* Criação de operadores vetoriais e cálculos euclidianos em Kotlin puro no pacote `domain.model`.
+
+### 🚀 Próximos Passos (Dia 03)
+- [ ] Definição do contrato de repositório `SpatialSensorRepository` na camada de domínio.
+- [ ] Implementação do `ArCoreSpatialDataSource` e pipeline de captura de frames na camada `data`.
+
+---
+
 ## 📅 [Dia 01] - 2026-08-23: Fundação Arquitetural e Configuração Base
 
 ### 🎯 Objetivo do Dia
-- [x] Definição do nome do projeto (**Aetheris**).
-- [x] Estruturação modular com Clean Architecture + MVI.
-- [x] Padronização do Version Catalog (`libs.versions.toml`) com Jetpack Compose, Coroutines, Hilt e ARCore.
+- [x] Definição do escopo do projeto (**Aetheris**).
+- [x] Estruturação modular com Clean Architecture.
+- [x] Setup do Gradle moderno com Kotlin 2.0, Jetpack Compose, CameraX e ARCore.
+- [x] Configuração da injeção de dependência com Koin.
 - [x] Criação do repositório Git e governança de documentação.
-
-### 📐 Decisões de Arquitetura (ADR)
-- **ADR-001: Separação Estrita de Domínio Matemático**
-    - **Contexto:** Cálculos de projeção 3D e estimativas físicas não devem depender do framework Android para permitir testes unitários rápidos na JVM.
-    - **Decisão:** A camada `domain` conterá apenas código Kotlin puro com estruturas vetoriais e casos de uso sem referências ao SDK Android.
-
-### 🧪 Desafios & Soluções
-- *Desafio:* Garantir injeção de dependência moderna sem o uso do KAPT legado.
-- *Solução:* Adoção de KSP (*Kotlin Symbol Processing*) com Hilt 2.51+.
-
-### 🚀 Próximos Passos (Dia 02)
-- [ ] Modelagem das entidades matemáticas em Kotlin puro na camada `domain` (`Point3D`, `DistanceMeasurement`, `BoundingBox3D`).
-- [ ] Implementação de casos de uso com testes unitários puros na JVM.
