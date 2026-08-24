@@ -1,15 +1,39 @@
+# Build e Cache do Gradle
 *.iml
-.gradle
-/local.properties
-/.idea/caches
-/.idea/libraries
-/.idea/modules.xml
-/.idea/workspace.xml
-/.idea/navEditor.xml
-/.idea/assetWizardSettings.xml
-.DS_Store
-/build
-/captures
-.externalNativeBuild
-.cxx
+.gradle/
+build/
+**/build/
+
+# Android Studio e IntelliJ IDEA
+.idea/
+!.idea/codeStyles/
+!.idea/vcs.xml
+!.idea/runConfigurations/
+
+# Configurações locais de máquina e SDK
 local.properties
+.DS_Store
+Thumbs.db
+
+# Binários e Pacotes Compilados
+*.apk
+*.ap_
+*.aab
+*.dex
+*.class
+
+# Chaves de Assinatura (Segurança Crítica)
+*.jks
+*.keystore
+
+# Ferramentas Nativas e Profiler C/C++
+.cxx/
+.externalNativeBuild/
+/captures/
+/profiler/
+*.hprof
+
+# Relatórios de Testes e Lint
+lint/
+**/lint-results-*.html
+**/lint-results-*.xml
