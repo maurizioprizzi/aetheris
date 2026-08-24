@@ -4,6 +4,29 @@
 
 ---
 
+## 📅 [Dia 03] - 2026-08-24: Contrato de Repositório de Sensores e Telemetria Reativa
+
+### 🎯 Objetivo do Dia
+- [x] Criação dos modelos de telemetria espacial (`TrackingStatus`, `SpatialFrameData`).
+- [x] Definição do contrato de repositório `SpatialSensorRepository` na camada `domain`.
+- [x] Implementação de `SpatialSensorRepositoryImpl` com `StateFlow` na camada `data`.
+- [x] Injeção de dependência via Koin como `Single`.
+- [x] Testes unitários do repositório garantindo reatividade e integridade de estado.
+
+### 📐 Decisões de Arquitetura (ADR)
+- **ADR-005: Desacoplamento do Pipeline de Sensores via Repositório Reativo**
+  - **Contexto:** ARCore e CameraX emitem eventos em alta frequência (30 a 60 FPS) na thread de renderização. O domínio precisa consumir apenas o estado mais recente sem travar a UI.
+  - **Decisão:** Utilização de `StateFlow<SpatialFrameData>` com buffer conflated atômico (`.update { ... }`).
+- **ADR-006: Abstração de Hit-Testing e Raycasting**
+  - **Contexto:** Projeção de coordenadas 2D de tela para coordenadas espaciais 3D ($X, Y, Z$) precisa funcionar independentemente da presença de sensor ToF dedicado.
+  - **Decisão:** O contrato do repositório expõe `performHitTest(x, y)` delegando para nuvem de pontos esparsa ou mapa de profundidade denso.
+
+### 🚀 Próximos Passos (Dia 04)
+- [ ] Implementação do `ArCoreFrameProcessor` para extração de `FloatBuffer` da Depth API.
+- [ ] Construção do `SpatialMeasurementViewModel` e interface de UI em Jetpack Compose.
+
+---
+
 ## 📅 [Dia 02] - 2026-08-23: Núcleo Matemático de Domínio e Testes Unitários
 
 ### 🎯 Objetivo do Dia
