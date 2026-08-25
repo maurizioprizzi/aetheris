@@ -2,18 +2,23 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools">
 
-    <!-- Permissões e Requisitos de Hardware -->
+    <!-- Permissões de Software -->
     <uses-permission android:name="android.permission.CAMERA" />
+
+    <!-- Requisitos de Hardware Físico e Aceleração Gráfica -->
     <uses-feature
         android:name="android.hardware.camera"
         android:required="true" />
     <uses-feature
         android:name="android.hardware.camera.ar"
-        android:required="false" />
+        android:required="true" />
+    <uses-feature
+        android:glEsVersion="0x00030000"
+        android:required="true" />
 
     <application
         android:name=".AetherisApplication"
-        android:allowBackup="true"
+        android:allowBackup="false"
         android:dataExtractionRules="@xml/data_extraction_rules"
         android:fullBackupContent="@xml/backup_rules"
         android:icon="@mipmap/ic_launcher"
@@ -22,15 +27,16 @@
         android:supportsRtl="true"
         android:theme="@style/Theme.Aetheris">
 
-        <!-- Metadados para suporte opcional ao Google ARCore -->
+        <!-- Metadados de integração com o Google Play Services for AR -->
         <meta-data
             android:name="com.google.ar.core"
-            android:value="optional" />
+            android:value="required" />
 
         <activity
             android:name=".MainActivity"
             android:exported="true"
             android:label="@string/app_name"
+            android:configChanges="orientation|screenSize|keyboardHidden"
             android:theme="@style/Theme.Aetheris"
             android:windowSoftInputMode="adjustResize">
             <intent-filter>
