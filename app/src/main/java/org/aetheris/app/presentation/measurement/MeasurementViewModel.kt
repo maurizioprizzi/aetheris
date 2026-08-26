@@ -2,13 +2,15 @@ package org.aetheris.app.presentation.measurement
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.google.ar.core.Frame
+import com.google.ar.core.TrackingState
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.update
-import org.aetheris.app.domain.model.Point3D
+import org.aetheris.app.domain.model.TrackingStatus
 import org.aetheris.app.domain.repository.SpatialSensorRepository
 import org.aetheris.app.domain.usecase.CalculateDistanceUseCase
 
@@ -79,6 +81,20 @@ class MeasurementViewModel(
                 selectedEndPoint = null,
                 currentMeasurement = null
             )
+        }
+    }
+
+    fun processFrame(frame: Frame) {
+        val camera = frame.camera
+        val status = when (camera.trackingState) {
+            TrackingState.TRACKING -> TrackingStatus.TRACKING
+            TrackingState.PAUSED,
+            TrackingState.STOPPED,
+            null -> TrackingStatus.INITIALIZING
+        }
+
+        _uiState.update { current ->
+            current.copy(trackingStatus = status)
         }
     }
 }

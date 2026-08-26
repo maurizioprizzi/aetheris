@@ -37,6 +37,7 @@ koin-androidx-compose = { group = "io.insert-koin", name = "koin-androidx-compos
 # Concorrência (Coroutines)
 kotlinx-coroutines-core = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-core", version.ref = "coroutines" }
 kotlinx-coroutines-android = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-android", version.ref = "coroutines" }
+kotlinx-coroutines-test = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-test", version.ref = "coroutines" }
 
 # Sensores, Câmera e Realidade Aumentada (ARCore)
 google-arcore = { group = "com.google.ar", name = "core", version.ref = "arcore" }
