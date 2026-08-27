@@ -10,6 +10,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.update
+import org.aetheris.app.data.repository.SpatialSensorRepositoryImpl
 import org.aetheris.app.domain.model.TrackingStatus
 import org.aetheris.app.domain.repository.SpatialSensorRepository
 import org.aetheris.app.domain.usecase.CalculateDistanceUseCase
@@ -39,6 +40,13 @@ class MeasurementViewModel(
                 }
             }
             .launchIn(viewModelScope)
+    }
+
+    /**
+     * Propaga a resolução do viewport EGL/GLSurfaceView para o cálculo de raycast.
+     */
+    fun onSurfaceDimensionsChanged(width: Int, height: Int) {
+        (sensorRepository as? SpatialSensorRepositoryImpl)?.updateViewportDimensions(width, height)
     }
 
     fun onAnchorPointTapped(normalizedScreenX: Float = 0.5f, normalizedScreenY: Float = 0.5f) {
@@ -85,12 +93,10 @@ class MeasurementViewModel(
     }
 
     fun processFrame(frame: Frame) {
-        val camera = frame.camera
-        val status = when (camera.trackingState) {
+        val status = when (frame.camera.trackingState) {
             TrackingState.TRACKING -> TrackingStatus.TRACKING
-            TrackingState.PAUSED,
-            TrackingState.STOPPED,
-            null -> TrackingStatus.INITIALIZING
+            TrackingState.PAUSED -> TrackingStatus.PAUSED
+            else -> TrackingStatus.INITIALIZING
         }
 
         _uiState.update { current ->

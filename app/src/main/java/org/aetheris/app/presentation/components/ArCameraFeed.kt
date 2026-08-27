@@ -1,14 +1,17 @@
 package org.aetheris.app.presentation.components
 
 import android.opengl.GLSurfaceView
+import android.view.Surface
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.runtime.*
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
-import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import com.google.ar.core.Frame
 import org.aetheris.app.data.arcore.ArCoreSessionManager
 import javax.microedition.khronos.egl.EGLConfig
 import javax.microedition.khronos.opengles.GL10
@@ -17,7 +20,8 @@ import javax.microedition.khronos.opengles.GL10
 fun ArCameraFeed(
     sessionManager: ArCoreSessionManager,
     modifier: Modifier = Modifier,
-    onFrameAvailable: (com.google.ar.core.Frame) -> Unit = {}
+    onSurfaceChanged: (width: Int, height: Int) -> Unit = { _, _ -> },
+    onFrameAvailable: (Frame) -> Unit = {}
 ) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -25,15 +29,9 @@ fun ArCameraFeed(
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
             when (event) {
-                Lifecycle.Event.ON_RESUME -> {
-                    sessionManager.resume()
-                }
-                Lifecycle.Event.ON_PAUSE -> {
-                    sessionManager.pause()
-                }
-                Lifecycle.Event.ON_DESTROY -> {
-                    sessionManager.destroy()
-                }
+                Lifecycle.Event.ON_RESUME -> sessionManager.resume()
+                Lifecycle.Event.ON_PAUSE -> sessionManager.pause()
+                Lifecycle.Event.ON_DESTROY -> sessionManager.destroy()
                 else -> Unit
             }
         }
@@ -56,10 +54,11 @@ fun ArCameraFeed(
 
                     override fun onSurfaceChanged(gl: GL10?, width: Int, height: Int) {
                         sessionManager.session?.setDisplayGeometry(
-                            android.view.Surface.ROTATION_0,
+                            Surface.ROTATION_0,
                             width,
                             height
                         )
+                        onSurfaceChanged(width, height)
                     }
 
                     override fun onDrawFrame(gl: GL10?) {

@@ -30,16 +30,19 @@ fun MeasurementScreen(
 
     CameraPermissionHandler {
         Box(modifier = Modifier.fillMaxSize()) {
-            // Camada 0: Feed de Vídeo da Câmera / ARCore
+            // Camada 0: Feed de Vídeo da Câmera / OpenGL ES 3.0 / ARCore
             ArCameraFeed(
                 sessionManager = sessionManager,
                 modifier = Modifier.fillMaxSize(),
+                onSurfaceChanged = { width, height ->
+                    viewModel.onSurfaceDimensionsChanged(width, height)
+                },
                 onFrameAvailable = { frame ->
                     viewModel.processFrame(frame)
                 }
             )
 
-            // Telemetria Superior (HUD)
+            // Telemetria Superior (HUD Tático)
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -66,7 +69,7 @@ fun MeasurementScreen(
                 )
             }
 
-            // Retículo Central de Mira
+            // Retículo Central de Mira Reativo
             Box(
                 modifier = Modifier
                     .size(24.dp)
@@ -78,7 +81,7 @@ fun MeasurementScreen(
                     )
             )
 
-            // Painel Inferior de Resultados
+            // Painel Inferior de Resultados e Controle de Ancoragem
             Card(
                 modifier = Modifier
                     .fillMaxWidth()

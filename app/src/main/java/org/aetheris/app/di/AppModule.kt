@@ -1,6 +1,7 @@
 package org.aetheris.app.di
 
 import org.aetheris.app.data.arcore.ArCoreFrameProcessor
+import org.aetheris.app.data.arcore.ArCoreHitTestProcessor
 import org.aetheris.app.data.repository.SpatialSensorRepositoryImpl
 import org.aetheris.app.domain.repository.SpatialSensorRepository
 import org.aetheris.app.domain.usecase.CalculateDistanceUseCase
@@ -13,13 +14,14 @@ import org.koin.core.module.dsl.singleOf
 import org.koin.dsl.module
 
 val appModule = module {
-    // Processamento de Hardware
+    // Processamento de Hardware & Óptica de Baixo Nível
     singleOf(::ArCoreFrameProcessor)
+    singleOf(::ArCoreHitTestProcessor)
 
     // Repositórios
     singleOf(::SpatialSensorRepositoryImpl) { bind<SpatialSensorRepository>() }
 
-    // UseCases
+    // Use Cases (Matemática Pura & Metrologia)
     factoryOf(::CalculateDistanceUseCase)
     factoryOf(::EstimateSpatialDimensionsUseCase)
 
