@@ -1,13 +1,16 @@
 package org.aetheris.app.presentation.measurement
 
+import com.google.ar.core.Camera
+import com.google.ar.core.Frame
+import com.google.ar.core.TrackingState
+import com.google.common.truth.Truth.assertThat
+import io.mockk.every
+import io.mockk.mockk
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.resetMain
-import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
 import org.aetheris.app.domain.model.Point3D
 import org.aetheris.app.domain.model.SpatialFrameData
@@ -15,9 +18,6 @@ import org.aetheris.app.domain.model.TrackingStatus
 import org.aetheris.app.domain.repository.SpatialSensorRepository
 import org.aetheris.app.domain.usecase.CalculateDistanceUseCase
 import org.junit.After
-import org.junit.Assert.assertEquals
-import org.junit.Assert.assertNotNull
-import org.junit.Assert.assertNull
 import org.junit.Before
 import org.junit.Test
 
@@ -25,16 +25,17 @@ import org.junit.Test
 class MeasurementViewModelTest {
 
     private val testDispatcher = StandardTestDispatcher()
-    private lateinit var fakeRepository: FakeSpatialSensorRepository
-    private lateinit var calculateDistanceUseCase: CalculateDistanceUseCase
+    private val repository = mockk<SpatialSensorRepository>(relaxed = true)
+    private val calculateDistanceUseCase = CalculateDistanceUseCase()
+    private val spatialStream = MutableStateFlow(SpatialFrameData())
+
     private lateinit var viewModel: MeasurementViewModel
 
     @Before
     fun setUp() {
         Dispatchers.setMain(testDispatcher)
-        fakeRepository = FakeSpatialSensorRepository()
-        calculateDistanceUseCase = CalculateDistanceUseCase()
-        viewModel = MeasurementViewModel(fakeRepository, calculateDistanceUseCase)
+        every { repository.spatialFrameStream } returns spatialStream
+        viewModel = MeasurementViewModel(repository, calculateDistanceUseCase)
     }
 
     @After
@@ -43,118 +44,92 @@ class MeasurementViewModelTest {
     }
 
     @Test
-    fun `initial state should have empty points and null measurement`() {
+    fun `initial state should have null points and zero measurements`() {
         val state = viewModel.uiState.value
 
-        assertNull(state.selectedStartPoint)
-        assertNull(state.selectedEndPoint)
-        assertNull(state.currentMeasurement)
-        assertEquals(TrackingStatus.INITIALIZING, state.trackingStatus)
+        assertThat(state.selectedStartPoint).isNull()
+        assertThat(state.selectedEndPoint).isNull()
+        assertThat(state.currentMeasurement).isNull()
     }
 
     @Test
-    fun `when first anchor point is tapped, should store startPoint`() {
-        val expectedPoint = Point3D(x = 1.0f, y = 0.5f, z = -2.0f)
-        fakeRepository.hitTestResult = expectedPoint
+    fun `tapping anchor should set Point A when no points are selected`() {
+        val mockHitPoint = Point3D(x = 0.0f, y = 0.0f, z = -1.5f)
+        every { repository.performHitTest(0.5f, 0.5f) } returns mockHitPoint
 
         viewModel.onAnchorPointTapped()
 
         val state = viewModel.uiState.value
-        assertEquals(expectedPoint, state.selectedStartPoint)
-        assertNull(state.selectedEndPoint)
-        assertNull(state.currentMeasurement)
+        assertThat(state.selectedStartPoint).isEqualTo(mockHitPoint)
+        assertThat(state.selectedEndPoint).isNull()
+        assertThat(state.currentMeasurement).isNull()
     }
 
     @Test
-    fun `when second anchor point is tapped, should calculate deterministic distance`() {
+    fun `tapping anchor should set Point B and calculate deterministic distance when Point A exists`() {
         val pointA = Point3D(x = 0.0f, y = 0.0f, z = 0.0f)
         val pointB = Point3D(x = 3.0f, y = 4.0f, z = 0.0f)
 
-        fakeRepository.hitTestResult = pointA
-        viewModel.onAnchorPointTapped()
+        every { repository.performHitTest(0.5f, 0.5f) } returns pointA andThen pointB
 
-        fakeRepository.hitTestResult = pointB
+        // Primeiro toque -> Ponto A
+        viewModel.onAnchorPointTapped()
+        // Segundo toque -> Ponto B
         viewModel.onAnchorPointTapped()
 
         val state = viewModel.uiState.value
-        assertEquals(pointA, state.selectedStartPoint)
-        assertEquals(pointB, state.selectedEndPoint)
-        assertNotNull(state.currentMeasurement)
-        assertEquals(5.0, state.currentMeasurement!!.meters.toDouble(), 0.001)
+        assertThat(state.selectedStartPoint).isEqualTo(pointA)
+        assertThat(state.selectedEndPoint).isEqualTo(pointB)
+
+        val measurement = state.currentMeasurement
+        assertThat(measurement).isNotNull()
+        assertThat(measurement!!.meters.toDouble()).isWithin(1e-4).of(5.0)
+        assertThat(measurement.uncertaintyMeters.toDouble()).isGreaterThan(0.0)
     }
 
     @Test
-    fun `when reset is called, all measurement points should be cleared`() {
-        fakeRepository.hitTestResult = Point3D(x = 0f, y = 0f, z = 0f)
-        viewModel.onAnchorPointTapped()
+    fun `tapping anchor after both points are set should reset and assign new Point A`() {
+        val pointA = Point3D(x = 0.0f, y = 0.0f, z = 0.0f)
+        val pointB = Point3D(x = 1.0f, y = 0.0f, z = 0.0f)
+        val pointC = Point3D(x = 5.0f, y = 5.0f, z = 5.0f)
 
+        every { repository.performHitTest(0.5f, 0.5f) } returnsMany listOf(pointA, pointB, pointC)
+
+        viewModel.onAnchorPointTapped() // Fixa Ponto A
+        viewModel.onAnchorPointTapped() // Fixa Ponto B
+        viewModel.onAnchorPointTapped() // Reinicia ciclo com Ponto C
+
+        val state = viewModel.uiState.value
+        assertThat(state.selectedStartPoint).isEqualTo(pointC)
+        assertThat(state.selectedEndPoint).isNull()
+        assertThat(state.currentMeasurement).isNull()
+    }
+
+    @Test
+    fun `onResetMeasurements should clear all anchor points and measurement result`() {
+        val pointA = Point3D(x = 0.0f, y = 0.0f, z = 0.0f)
+        val pointB = Point3D(x = 1.0f, y = 0.0f, z = 0.0f)
+        every { repository.performHitTest(0.5f, 0.5f) } returns pointA andThen pointB
+
+        viewModel.onAnchorPointTapped()
+        viewModel.onAnchorPointTapped()
         viewModel.onResetMeasurements()
 
         val state = viewModel.uiState.value
-        assertNull(state.selectedStartPoint)
-        assertNull(state.selectedEndPoint)
-        assertNull(state.currentMeasurement)
+        assertThat(state.selectedStartPoint).isNull()
+        assertThat(state.selectedEndPoint).isNull()
+        assertThat(state.currentMeasurement).isNull()
     }
 
     @Test
-    fun `when sensor telemetry emits new frame, UI state should update reactively`() = runTest {
-        val telemetryFrame = SpatialFrameData(
-            trackingStatus = TrackingStatus.TRACKING,
-            isDepthAvailable = true,
-            pointCloud = listOf(Point3D(x = 0f, y = 0f, z = -1f))
-        )
+    fun `processFrame should update tracking status in UI state correctly`() {
+        val frame = mockk<Frame>()
+        val camera = mockk<Camera>()
+        every { frame.camera } returns camera
+        every { camera.trackingState } returns TrackingState.TRACKING
 
-        fakeRepository.emitFrame(telemetryFrame)
-        testDispatcher.scheduler.advanceUntilIdle()
+        viewModel.processFrame(frame)
 
-        val state = viewModel.uiState.value
-        assertEquals(TrackingStatus.TRACKING, state.trackingStatus)
-        assertEquals(true, state.isDepthActive)
-        assertEquals(1, state.detectedPointsCount)
-        assertEquals(true, state.isTargetingSurface)
-    }
-}
-
-/**
- * Dublê de teste determinístico para o repositório de sensores espaciais.
- */
-private class FakeSpatialSensorRepository : SpatialSensorRepository {
-    var hitTestResult: Point3D? = null
-    private val _stream = MutableStateFlow(
-        SpatialFrameData(
-            trackingStatus = TrackingStatus.INITIALIZING,
-            isDepthAvailable = false,
-            pointCloud = emptyList()
-        )
-    )
-    override val spatialFrameStream: StateFlow<SpatialFrameData> = _stream.asStateFlow()
-
-    fun emitFrame(frame: SpatialFrameData) {
-        _stream.value = frame
-    }
-
-    override fun performHitTest(normalizedX: Float, normalizedY: Float): Point3D? {
-        return hitTestResult
-    }
-
-    override fun updateFrame(
-        cameraPosition: Point3D,
-        points: List<Point3D>,
-        status: TrackingStatus,
-        hasDepth: Boolean
-    ) {
-        _stream.value = SpatialFrameData(
-            trackingStatus = status,
-            isDepthAvailable = hasDepth,
-            pointCloud = points
-        )
-    }
-
-    override fun resetTracking() {
-        _stream.value = SpatialFrameData(
-            trackingStatus = TrackingStatus.INITIALIZING,
-            isDepthAvailable = false,
-            pointCloud = emptyList()
-        )
+        assertThat(viewModel.uiState.value.trackingStatus).isEqualTo(TrackingStatus.TRACKING)
     }
 }

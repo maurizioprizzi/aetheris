@@ -34,6 +34,8 @@ fun MeasurementScreen(
             ArCameraFeed(
                 sessionManager = sessionManager,
                 modifier = Modifier.fillMaxSize(),
+                startPoint = uiState.selectedStartPoint,
+                endPoint = uiState.selectedEndPoint,
                 onSurfaceChanged = { width, height ->
                     viewModel.onSurfaceDimensionsChanged(width, height)
                 },

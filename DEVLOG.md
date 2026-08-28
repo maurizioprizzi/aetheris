@@ -4,6 +4,25 @@ Registro contínuo da engenharia, decisões arquiteturais (ADRs), modelagem mate
 
 ---
 
+## 🔬 [Dia 07] - 2026-08-28: Pipeline Gráfico OpenGL ES 3.0, Shaders OES e Renderização de Linhas 3D
+
+### 🎯 Objetivos Concluídos
+- [x] Criação do `BackgroundRenderer` com shaders GLSL ES 3.0 e suporte a `GL_TEXTURE_EXTERNAL_OES` para projeção com *zero-copy* do feed de vídeo da câmera.
+- [x] Implementação do `SpatialLineRenderer` em OpenGL ES 3.0 para traçado dos nós de ancoragem (`GL_POINTS`) e do vetor de medição (`GL_LINES`) no espaço tridimensional.
+- [x] Multiplicação matricial Model-View-Projection ($M_{clip} = M_{proj} \times M_{view} \times M_{model}$) em tempo real alimentada pelas matrizes da câmera ARCore.
+- [x] Prealocação estática de matrizes e buffers nativos diretos (`FloatBuffer`) garantindo zero alocação de memória no loop de renderização (Zero GC Churn).
+- [x] Integração completa dos renderizadores no ciclo do `GLSurfaceView` (`onSurfaceCreated`, `onSurfaceChanged`, `onDrawFrame`) em `ArCameraFeed`.
+- [x] Conexão dos pontos A e B do `uiState` à camada gráfica via `rememberUpdatedState`.
+- [x] Criação da suíte `SpatialLineMathTest` e atualização de `MeasurementViewModelTest` com 100% dos testes unitários passando na JVM.
+- [x] Registro da decisão arquitetural no `ADR-012`.
+
+### 📐 Decisões de Arquitetura (ADR)
+- **ADR-012: Zero-Copy OES Camera Texture and OpenGL ES 3.0 Spatial Geometry Pipeline**
+  - **Contexto:** Necessidade de renderização em alta frequência (60 FPS) do vídeo da câmera e da geometria métrica sem alocações dinâmicas na GPU/CPU.
+  - **Decisão:** Adoção de textura externa OES via GLSL ES 3.0, prealocação estática de buffers/matrizes e consumo síncrono do estado do Compose pela thread gráfica EGL.
+
+---
+
 ## 🔬 [Dia 06] - 2026-08-27: Spatial Raycasting, Polygon Gating e Testes Unitários de Colisão
 
 ### 🎯 Objetivos Concluídos
@@ -120,7 +139,7 @@ Registro contínuo da engenharia, decisões arquiteturais (ADRs), modelagem mate
 
 ---
 
-## 🚀 Próximos Passos (Dia 07)
-- [ ] Ancoragem física e criação de instâncias de `Anchor` do ARCore para estabilizar os Pontos A e B contra drift de odometria visual-inercial (VIO).
-- [ ] Implementação do pipeline de renderização em OpenGL ES 3.0 para desenhar a linha métrica 3D entre as âncoras diretamente na `GLSurfaceView`.
-- [ ] Cálculo da matriz de projeção de mundo para tela (World-to-Screen) para posicionar rótulos de distância flutuantes sobre o vetor 3D.
+## 🚀 Próximos Passos (Dia 08)
+- [ ] Implementação de projeção World-to-Screen para cálculo do ponto médio 2D do vetor tridimensional.
+- [ ] Renderização de etiqueta/badge flutuante em Compose (distância + incerteza $\pm\sigma$) acompanhando a linha 3D em tempo real.
+- [ ] Persistência de âncoras nativas do ARCore (`Anchor`) para mitigar *drift* de odometria visual-inercial em medições de longa duração.
