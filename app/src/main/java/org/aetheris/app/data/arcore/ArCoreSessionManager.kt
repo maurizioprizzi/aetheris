@@ -1,8 +1,10 @@
 package org.aetheris.app.data.arcore
 
 import android.content.Context
+import androidx.annotation.MainThread
 import com.google.ar.core.Config
 import com.google.ar.core.Session
+import com.google.ar.core.exceptions.CameraNotAvailableException
 import com.google.ar.core.exceptions.UnavailableApkTooOldException
 import com.google.ar.core.exceptions.UnavailableArcoreNotInstalledException
 import com.google.ar.core.exceptions.UnavailableDeviceNotCompatibleException
@@ -14,7 +16,16 @@ class ArCoreSessionManager(
     var session: Session? = null
         private set
 
+    @Volatile
+    var isRunning: Boolean = false
+        private set
+
+    @MainThread
     fun initializeSession(): Result<Session> {
+        if (session != null) {
+            return Result.success(session!!)
+        }
+
         return try {
             val arSession = Session(context).apply {
                 val config = Config(this).apply {
@@ -45,16 +56,47 @@ class ArCoreSessionManager(
         }
     }
 
-    fun resume() {
-        session?.resume()
+    @MainThread
+    fun resume(): Result<Unit> {
+        if (session == null) {
+            val initResult = initializeSession()
+            if (initResult.isFailure) {
+                return Result.failure(initResult.exceptionOrNull() ?: Exception("Falha na inicialização"))
+            }
+        }
+
+        return try {
+            session?.resume()
+            isRunning = true
+            Result.success(Unit)
+        } catch (e: CameraNotAvailableException) {
+            isRunning = false
+            Result.failure(Exception("Câmera indisponível."))
+        } catch (e: Exception) {
+            isRunning = false
+            Result.failure(e)
+        }
     }
 
+    @MainThread
     fun pause() {
-        session?.pause()
+        isRunning = false
+        try {
+            session?.pause()
+        } catch (e: Throwable) {
+            // Suprime exceções de transição nativa durante pause abrupto
+        }
     }
 
+    @MainThread
     fun destroy() {
-        session?.close()
-        session = null
+        isRunning = false
+        try {
+            session?.close()
+        } catch (e: Throwable) {
+            // Suprime exceções na destruição do pipeline
+        } finally {
+            session = null
+        }
     }
 }

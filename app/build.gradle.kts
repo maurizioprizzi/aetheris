@@ -40,6 +40,9 @@ android {
     }
 
     packaging {
+        jniLibs {
+            useLegacyPackaging = false
+        }
         resources {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
         }
@@ -70,12 +73,8 @@ dependencies {
     implementation(libs.kotlinx.coroutines.core)
     implementation(libs.kotlinx.coroutines.android)
 
-    // Sensores, Câmera e Realidade Aumentada (ARCore)
+    // Sensores & Realidade Aumentada (ARCore)
     implementation(libs.google.arcore)
-    implementation(libs.camerax.core)
-    implementation(libs.camerax.camera2)
-    implementation(libs.camerax.lifecycle)
-    implementation(libs.camerax.view)
 
     // Testes Unitários
     testImplementation(libs.junit)

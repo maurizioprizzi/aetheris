@@ -1,14 +1,13 @@
 package org.aetheris.app.presentation.components
 
+import android.content.Context
+import android.hardware.display.DisplayManager
 import android.opengl.GLES30
 import android.opengl.GLSurfaceView
+import android.view.Display
 import android.view.Surface
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.viewinterop.AndroidView
@@ -16,6 +15,9 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.google.ar.core.Frame
+import com.google.ar.core.exceptions.CameraNotAvailableException
+import com.google.ar.core.exceptions.NotYetAvailableException
+import com.google.ar.core.exceptions.SessionPausedException
 import org.aetheris.app.data.arcore.ArCoreSessionManager
 import org.aetheris.app.data.opengl.BackgroundRenderer
 import org.aetheris.app.data.opengl.SpatialLineRenderer
@@ -35,7 +37,6 @@ fun ArCameraFeed(
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
 
-    // Garante leitura síncrona dos pontos pela GL Thread sem recriar o renderer
     val currentStartPoint by rememberUpdatedState(startPoint)
     val currentEndPoint by rememberUpdatedState(endPoint)
 
@@ -45,18 +46,39 @@ fun ArCameraFeed(
     val viewMatrix = remember { FloatArray(16) }
     val projectionMatrix = remember { FloatArray(16) }
 
+    var glSurfaceViewRef by remember { mutableStateOf<GLSurfaceView?>(null) }
+    var isTextureBound by remember { mutableStateOf(false) }
+
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
             when (event) {
-                Lifecycle.Event.ON_RESUME -> sessionManager.resume()
-                Lifecycle.Event.ON_PAUSE -> sessionManager.pause()
-                Lifecycle.Event.ON_DESTROY -> sessionManager.destroy()
+                Lifecycle.Event.ON_RESUME -> {
+                    sessionManager.resume()
+                    glSurfaceViewRef?.onResume()
+                }
+                Lifecycle.Event.ON_PAUSE -> {
+                    glSurfaceViewRef?.onPause()
+                    sessionManager.pause()
+                }
+                Lifecycle.Event.ON_DESTROY -> {
+                    glSurfaceViewRef?.onPause()
+                    sessionManager.destroy()
+                }
                 else -> Unit
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
+
+        if (lifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) {
+            sessionManager.resume()
+            glSurfaceViewRef?.onResume()
+        }
+
         onDispose {
             lifecycleOwner.lifecycle.removeObserver(observer)
+            glSurfaceViewRef?.onPause()
+            sessionManager.pause()
+            sessionManager.destroy()
         }
     }
 
@@ -69,23 +91,19 @@ fun ArCameraFeed(
                 setRenderer(object : GLSurfaceView.Renderer {
                     override fun onSurfaceCreated(gl: GL10?, config: EGLConfig?) {
                         GLES30.glClearColor(0.0f, 0.0f, 0.0f, 1.0f)
-                        sessionManager.initializeSession()
+                        isTextureBound = false
 
-                        // Compilação dos shaders na thread com contexto EGL ativo
                         backgroundRenderer.createOnGlThread()
                         spatialLineRenderer.createOnGlThread()
-
-                        // Vincula a textura OES do BackgroundRenderer à sessão ARCore
-                        sessionManager.session?.setCameraTextureNames(intArrayOf(backgroundRenderer.textureId))
                     }
 
                     override fun onSurfaceChanged(gl: GL10?, width: Int, height: Int) {
                         GLES30.glViewport(0, 0, width, height)
-                        sessionManager.session?.setDisplayGeometry(
-                            Surface.ROTATION_0,
-                            width,
-                            height
-                        )
+
+                        val displayManager = ctx.getSystemService(Context.DISPLAY_SERVICE) as? DisplayManager
+                        val rotation = displayManager?.getDisplay(Display.DEFAULT_DISPLAY)?.rotation ?: Surface.ROTATION_0
+
+                        sessionManager.session?.setDisplayGeometry(rotation, width, height)
                         onSurfaceChanged(width, height)
                     }
 
@@ -93,22 +111,26 @@ fun ArCameraFeed(
                         GLES30.glClear(GLES30.GL_COLOR_BUFFER_BIT or GLES30.GL_DEPTH_BUFFER_BIT)
 
                         val session = sessionManager.session ?: return
+                        if (!sessionManager.isRunning) return
 
-                        // Garante que o ID da textura continue vinculado após pausas do app
-                        session.setCameraTextureNames(intArrayOf(backgroundRenderer.textureId))
+                        // Vincula o ID da textura OES ao ARCore assim que a sessão estiver pronta
+                        if (!isTextureBound && backgroundRenderer.textureId != -1) {
+                            session.setCameraTextureNames(intArrayOf(backgroundRenderer.textureId))
+                            isTextureBound = true
+                        }
 
                         try {
                             val frame = session.update()
                             val camera = frame.camera
 
-                            // 1. Renderiza o feed de vídeo da câmera via textura externa OES
+                            // 1. Renderiza o vídeo real da câmera
                             backgroundRenderer.draw(frame)
 
-                            // 2. Extrai matrizes de visualização e projeção da câmera ARCore
+                            // 2. Extrai as matrizes de projeção do mundo 3D
                             camera.getViewMatrix(viewMatrix, 0)
                             camera.getProjectionMatrix(projectionMatrix, 0, 0.1f, 100.0f)
 
-                            // 3. Renderiza o vetor métrico 3D (linhas e âncoras) sobre o plano
+                            // 3. Renderiza as linhas e pontos 3D
                             spatialLineRenderer.draw(
                                 viewMatrix = viewMatrix,
                                 projectionMatrix = projectionMatrix,
@@ -116,15 +138,21 @@ fun ArCameraFeed(
                                 endPoint = currentEndPoint
                             )
 
-                            // 4. Notifica processadores de telemetria e raycasting
+                            // 4. Notifica a UI com o frame atualizado
                             onFrameAvailable(frame)
-                        } catch (e: Exception) {
-                            // Trata variações de frame rate ou perda temporária de tracking
+                        } catch (e: SessionPausedException) {
+                            // Ignora frames durante transições de ciclo de vida
+                        } catch (e: CameraNotAvailableException) {
+                            // Câmera temporariamente ocupada
+                        } catch (e: NotYetAvailableException) {
+                            // Frame intermediário
+                        } catch (e: Throwable) {
+                            // Protege o loop gráfico contra quedas
                         }
                     }
                 })
                 renderMode = GLSurfaceView.RENDERMODE_CONTINUOUSLY
-            }
+            }.also { glSurfaceViewRef = it }
         }
     )
 }

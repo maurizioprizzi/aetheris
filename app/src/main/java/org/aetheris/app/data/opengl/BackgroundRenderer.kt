@@ -8,40 +8,25 @@ import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.nio.FloatBuffer
 
-/**
- * Renderizador de baixo nível para projetar o feed da câmera física na GPU
- * via textura externa OES e shaders OpenGL ES 3.0.
- */
 class BackgroundRenderer {
 
-    private val vertexShaderCode = """#version 300 es
-        layout(location = 0) in vec4 a_Position;
-        layout(location = 1) in vec2 a_TexCoord;
-        out vec2 v_TexCoord;
-        void main() {
-            gl_Position = a_Position;
-            v_TexCoord = a_TexCoord;
-        }
-    """.trimIndent()
+    var textureId: Int = -1
+        private set
 
-    private val fragmentShaderCode = """#version 300 es
-        #extension GL_OES_EGL_image_external_essl3 : require
-        precision mediump float;
-        uniform samplerExternalOES u_Texture;
-        in vec2 v_TexCoord;
-        out vec4 fragColor;
-        void main() {
-            fragColor = texture(u_Texture, v_TexCoord);
-        }
-    """.trimIndent()
+    private var program: Int = 0
+    private var positionAttribute: Int = 0
+    private var texCoordAttribute: Int = 0
+    private var textureUniform: Int = 0
 
+    // Coordenadas dos vértices cobrindo toda a tela (NDC)
     private val quadCoords = floatArrayOf(
-        -1.0f, -1.0f, 0.0f,
-        +1.0f, -1.0f, 0.0f,
-        -1.0f, +1.0f, 0.0f,
-        +1.0f, +1.0f, 0.0f
+        -1.0f, -1.0f,
+        +1.0f, -1.0f,
+        -1.0f, +1.0f,
+        +1.0f, +1.0f
     )
 
+    // Coordenadas UV normalizadas no espaço de visualização
     private val quadTexCoords = floatArrayOf(
         0.0f, 1.0f,
         1.0f, 1.0f,
@@ -49,7 +34,8 @@ class BackgroundRenderer {
         1.0f, 0.0f
     )
 
-    private val quadVertices: FloatBuffer = ByteBuffer.allocateDirect(quadCoords.size * 4)
+    private val quadCoordBuffer: FloatBuffer = ByteBuffer
+        .allocateDirect(quadCoords.size * 4)
         .order(ByteOrder.nativeOrder())
         .asFloatBuffer()
         .apply {
@@ -57,7 +43,8 @@ class BackgroundRenderer {
             position(0)
         }
 
-    private val quadTexCoordinates: FloatBuffer = ByteBuffer.allocateDirect(quadTexCoords.size * 4)
+    private val quadTexCoordBuffer: FloatBuffer = ByteBuffer
+        .allocateDirect(quadTexCoords.size * 4)
         .order(ByteOrder.nativeOrder())
         .asFloatBuffer()
         .apply {
@@ -65,14 +52,14 @@ class BackgroundRenderer {
             position(0)
         }
 
-    private val transformedTexCoordinates: FloatBuffer = ByteBuffer.allocateDirect(quadTexCoords.size * 4)
+    private val transformedTexCoordBuffer: FloatBuffer = ByteBuffer
+        .allocateDirect(quadTexCoords.size * 4)
         .order(ByteOrder.nativeOrder())
         .asFloatBuffer()
-
-    var textureId: Int = -1
-        private set
-
-    private var programId: Int = 0
+        .apply {
+            put(quadTexCoords)
+            position(0)
+        }
 
     fun createOnGlThread() {
         val textures = IntArray(1)
@@ -85,50 +72,82 @@ class BackgroundRenderer {
         GLES30.glTexParameteri(GLES11Ext.GL_TEXTURE_EXTERNAL_OES, GLES30.GL_TEXTURE_MIN_FILTER, GLES30.GL_LINEAR)
         GLES30.glTexParameteri(GLES11Ext.GL_TEXTURE_EXTERNAL_OES, GLES30.GL_TEXTURE_MAG_FILTER, GLES30.GL_LINEAR)
 
-        val vShader = loadShader(GLES30.GL_VERTEX_SHADER, vertexShaderCode)
-        val fShader = loadShader(GLES30.GL_FRAGMENT_SHADER, fragmentShaderCode)
+        val vertexShaderSource = """
+            #version 300 es
+            layout(location = 0) in vec4 a_Position;
+            layout(location = 1) in vec2 a_TexCoord;
+            out vec2 v_TexCoord;
+            void main() {
+                gl_Position = a_Position;
+                v_TexCoord = a_TexCoord;
+            }
+        """.trimIndent()
 
-        programId = GLES30.glCreateProgram().also {
-            GLES30.glAttachShader(it, vShader)
-            GLES30.glAttachShader(it, fShader)
-            GLES30.glLinkProgram(it)
+        val fragmentShaderSource = """
+            #version 300 es
+            #extension GL_OES_EGL_image_external_essl3 : require
+            precision mediump float;
+            uniform samplerExternalOES u_Texture;
+            in vec2 v_TexCoord;
+            out vec4 o_FragColor;
+            void main() {
+                o_FragColor = texture(u_Texture, v_TexCoord);
+            }
+        """.trimIndent()
+
+        val vShader = compileShader(GLES30.GL_VERTEX_SHADER, vertexShaderSource)
+        val fShader = compileShader(GLES30.GL_FRAGMENT_SHADER, fragmentShaderSource)
+
+        program = GLES30.glCreateProgram().also { prog ->
+            GLES30.glAttachShader(prog, vShader)
+            GLES30.glAttachShader(prog, fShader)
+            GLES30.glLinkProgram(prog)
         }
+
+        positionAttribute = GLES30.glGetAttribLocation(program, "a_Position")
+        texCoordAttribute = GLES30.glGetAttribLocation(program, "a_TexCoord")
+        textureUniform = GLES30.glGetUniformLocation(program, "u_Texture")
     }
 
     fun draw(frame: Frame) {
-        if (frame.hasDisplayGeometryChanged()) {
-            frame.transformCoordinates2d(
-                Coordinates2d.OPENGL_NORMALIZED_DEVICE_COORDINATES,
-                quadVertices,
-                Coordinates2d.TEXTURE_NORMALIZED,
-                transformedTexCoordinates
-            )
-        }
+        // Converte as coordenadas para o aspecto real e rotação do display
+        frame.transformCoordinates2d(
+            Coordinates2d.VIEW_NORMALIZED,
+            quadTexCoordBuffer,
+            Coordinates2d.TEXTURE_NORMALIZED,
+            transformedTexCoordBuffer
+        )
 
         GLES30.glDisable(GLES30.GL_DEPTH_TEST)
         GLES30.glDepthMask(false)
 
+        GLES30.glUseProgram(program)
+
+        GLES30.glActiveTexture(GLES30.GL_TEXTURE0)
         GLES30.glBindTexture(GLES11Ext.GL_TEXTURE_EXTERNAL_OES, textureId)
-        GLES30.glUseProgram(programId)
+        GLES30.glUniform1i(textureUniform, 0)
 
-        GLES30.glEnableVertexAttribArray(0)
-        GLES30.glVertexAttribPointer(0, 3, GLES30.GL_FLOAT, false, 0, quadVertices)
+        quadCoordBuffer.position(0)
+        GLES30.glEnableVertexAttribArray(positionAttribute)
+        GLES30.glVertexAttribPointer(positionAttribute, 2, GLES30.GL_FLOAT, false, 0, quadCoordBuffer)
 
-        GLES30.glEnableVertexAttribArray(1)
-        GLES30.glVertexAttribPointer(1, 2, GLES30.GL_FLOAT, false, 0, transformedTexCoordinates)
+        transformedTexCoordBuffer.position(0)
+        GLES30.glEnableVertexAttribArray(texCoordAttribute)
+        GLES30.glVertexAttribPointer(texCoordAttribute, 2, GLES30.GL_FLOAT, false, 0, transformedTexCoordBuffer)
 
         GLES30.glDrawArrays(GLES30.GL_TRIANGLE_STRIP, 0, 4)
 
-        GLES30.glDisableVertexAttribArray(0)
-        GLES30.glDisableVertexAttribArray(1)
+        GLES30.glDisableVertexAttribArray(positionAttribute)
+        GLES30.glDisableVertexAttribArray(texCoordAttribute)
+
         GLES30.glDepthMask(true)
         GLES30.glEnable(GLES30.GL_DEPTH_TEST)
     }
 
-    private fun loadShader(type: Int, code: String): Int {
-        return GLES30.glCreateShader(type).also { shader ->
-            GLES30.glShaderSource(shader, code)
-            GLES30.glCompileShader(shader)
-        }
+    private fun compileShader(type: Int, source: String): Int {
+        val shader = GLES30.glCreateShader(type)
+        GLES30.glShaderSource(shader, source)
+        GLES30.glCompileShader(shader)
+        return shader
     }
 }
