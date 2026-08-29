@@ -3,34 +3,48 @@ package org.aetheris.app.domain.usecase
 import org.aetheris.app.domain.model.BoundingBox3D
 import org.aetheris.app.domain.model.Point3D
 
+/**
+ * Calcula uma caixa delimitadora alinhada aos eixos (AABB)
+ * a partir de pontos no espaço tridimensional.
+ */
 class EstimateSpatialDimensionsUseCase {
 
     /**
-     * Calcula a caixa delimitadora 3D a partir de uma nuvem de pontos espaciais.
+     * Calcula a AABB que envolve todos os pontos válidos.
+     *
+     * @throws IllegalArgumentException quando a coleção não contém
+     * nenhum ponto válido.
      */
-    operator fun invoke(points: List<Point3D>): BoundingBox3D {
-        require(points.isNotEmpty()) { "A nuvem de pontos não pode estar vazia." }
-
-        var minX = Float.MAX_VALUE
-        var minY = Float.MAX_VALUE
-        var minZ = Float.MAX_VALUE
-        var maxX = -Float.MAX_VALUE
-        var maxY = -Float.MAX_VALUE
-        var maxZ = -Float.MAX_VALUE
-
-        for (p in points) {
-            if (p.x < minX) minX = p.x
-            if (p.y < minY) minY = p.y
-            if (p.z < minZ) minZ = p.z
-
-            if (p.x > maxX) maxX = p.x
-            if (p.y > maxY) maxY = p.y
-            if (p.z > maxZ) maxZ = p.z
+    operator fun invoke(
+        points: Iterable<Point3D>
+    ): BoundingBox3D {
+        return requireNotNull(
+            BoundingBox3D.fromPointCloud(points)
+        ) {
+            "A nuvem de pontos deve conter pelo menos um ponto válido."
         }
+    }
 
-        return BoundingBox3D(
-            minPoint = Point3D(minX, minY, minZ),
-            maxPoint = Point3D(maxX, maxY, maxZ)
+    /**
+     * Calcula a AABB formada por dois pontos extremos.
+     */
+    operator fun invoke(
+        firstPoint: Point3D,
+        secondPoint: Point3D
+    ): BoundingBox3D {
+        return BoundingBox3D.fromPoints(
+            firstPoint = firstPoint,
+            secondPoint = secondPoint
         )
+    }
+
+    /**
+     * Sobrecarga de conveniência para uma quantidade
+     * variável de pontos.
+     */
+    operator fun invoke(
+        vararg points: Point3D
+    ): BoundingBox3D {
+        return invoke(points.asIterable())
     }
 }

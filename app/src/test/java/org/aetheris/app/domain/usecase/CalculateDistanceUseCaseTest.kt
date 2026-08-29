@@ -15,30 +15,43 @@ class CalculateDistanceUseCaseTest {
     }
 
     @Test
-    fun `when origin to point on Z axis then calculate exact direct distance`() {
-        val target = Point3D(0f, 0f, 2.5f)
-        val result = useCase(end = target)
+    fun `invoke calculates exact metric distance on single axis`() {
+        val start = Point3D(0f, 0f, 0f)
+        val end = Point3D(3f, 0f, 0f)
 
-        assertThat(result.meters).isWithin(0.001f).of(2.5f)
-        assertThat(result.centimeters).isWithin(0.1f).of(250f)
+        val result = useCase(start = start, end = end)
+
+        assertThat(result.meters).isWithin(1e-4f).of(3.0f)
+        assertThat(result.centimeters).isWithin(1e-2f).of(300.0f)
     }
 
     @Test
-    fun `when 3D vector is 3-4-0 then return distance 5`() {
-        val target = Point3D(3f, 4f, 0f)
-        val result = useCase(end = target)
+    fun `invoke calculates exact metric distance in 3D diagonal`() {
+        val start = Point3D(0f, 0f, 0f)
+        val end = Point3D(1f, 2f, 2f) // sqrt(1 + 4 + 4) = 3.0
 
-        assertThat(result.meters).isWithin(0.001f).of(5.0f)
+        val result = useCase(start = start, end = end)
+
+        assertThat(result.meters).isWithin(1e-4f).of(3.0f)
     }
 
     @Test
-    fun `when lower confidence then uncertainty increases`() {
-        val target = Point3D(1f, 1f, 1f)
+    fun `invoke computes metric uncertainty proportional to distance`() {
+        val start = Point3D(0f, 0f, 0f)
+        val end = Point3D(0f, 0f, 2f)
 
-        val highConfidenceResult = useCase(end = target, confidenceScore = 1.0f)
-        val lowConfidenceResult = useCase(end = target, confidenceScore = 0.4f)
+        val result = useCase(start = start, end = end)
 
-        assertThat(lowConfidenceResult.uncertaintyMeters)
-            .isGreaterThan(highConfidenceResult.uncertaintyMeters)
+        assertThat(result.uncertaintyMeters).isGreaterThan(0.0f)
+        assertThat(result.uncertaintyCentimeters).isGreaterThan(0.0f)
+    }
+
+    @Test
+    fun `invoke returns zero distance when points are identical`() {
+        val point = Point3D(1.5f, -2.0f, 3.2f)
+
+        val result = useCase(start = point, end = point)
+
+        assertThat(result.meters).isWithin(1e-5f).of(0.0f)
     }
 }

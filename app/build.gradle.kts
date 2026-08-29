@@ -5,86 +5,162 @@ plugins {
 
 android {
     namespace = "org.aetheris.app"
-    compileSdk = 34
+    compileSdk = 36
 
     defaultConfig {
         applicationId = "org.aetheris.app"
+
         minSdk = 26
-        targetSdk = 34
+        targetSdk = 36
+
         versionCode = 1
         versionName = "0.1.0-alpha"
 
-        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+        testInstrumentationRunner =
+            "androidx.test.runner.AndroidJUnitRunner"
+
         vectorDrawables {
             useSupportLibrary = true
         }
     }
 
     buildTypes {
-        release {
+        debug {
             isMinifyEnabled = false
+        }
+
+        release {
+            isMinifyEnabled = true
+            isShrinkResources = true
+
             proguardFiles(
-                getDefaultProguardFile("proguard-android-optimize.txt"),
+                getDefaultProguardFile(
+                    "proguard-android-optimize.txt"
+                ),
                 "proguard-rules.pro"
             )
         }
     }
 
     compileOptions {
-        sourceCompatibility = JavaVersion.VERSION_17
-        targetCompatibility = JavaVersion.VERSION_17
+        sourceCompatibility =
+            JavaVersion.VERSION_17
+
+        targetCompatibility =
+            JavaVersion.VERSION_17
     }
 
     buildFeatures {
         compose = true
+        buildConfig = true
     }
 
     packaging {
-        jniLibs {
-            useLegacyPackaging = false
-        }
         resources {
-            excludes += "/META-INF/{AL2.0,LGPL2.1}"
+            excludes += setOf(
+                "/META-INF/AL2.0",
+                "/META-INF/LGPL2.1"
+            )
         }
+    }
+
+    lint {
+        abortOnError = true
+        checkReleaseBuilds = true
     }
 }
 
 dependencies {
-    // AndroidX & Lifecycle
+    /*
+     * AndroidX
+     */
+
     implementation(libs.androidx.core.ktx)
-    implementation(libs.androidx.lifecycle.runtime.ktx)
-    implementation(libs.androidx.lifecycle.viewmodel.compose)
     implementation(libs.androidx.activity.compose)
 
-    // Jetpack Compose
-    implementation(platform(libs.androidx.compose.bom))
+    /*
+     * Lifecycle
+     */
+
+    implementation(
+        libs.androidx.lifecycle.runtime.ktx
+    )
+
+    /*
+     * Declarada diretamente porque o alias
+     * libs.androidx.lifecycle.runtime.compose
+     * ainda não existe no catálogo.
+     */
+    implementation(
+        "androidx.lifecycle:lifecycle-runtime-compose:2.10.0"
+    )
+
+    implementation(
+        libs.androidx.lifecycle.viewmodel.compose
+    )
+
+    /*
+     * Jetpack Compose
+     */
+
+    implementation(
+        platform(libs.androidx.compose.bom)
+    )
+
     implementation(libs.androidx.compose.ui)
     implementation(libs.androidx.compose.ui.graphics)
     implementation(libs.androidx.compose.ui.tooling.preview)
     implementation(libs.androidx.compose.material3)
-    debugImplementation(libs.androidx.compose.ui.tooling)
-    debugImplementation(libs.androidx.compose.ui.test.manifest)
 
-    // Injeção de Dependência (Koin)
+    debugImplementation(
+        libs.androidx.compose.ui.tooling
+    )
+
+    debugImplementation(
+        libs.androidx.compose.ui.test.manifest
+    )
+
+    /*
+     * Koin
+     */
+
     implementation(libs.koin.android)
     implementation(libs.koin.androidx.compose)
 
-    // Concorrência (Coroutines)
+    /*
+     * Coroutines
+     */
+
     implementation(libs.kotlinx.coroutines.core)
     implementation(libs.kotlinx.coroutines.android)
 
-    // Sensores & Realidade Aumentada (ARCore)
+    /*
+     * ARCore
+     */
+
     implementation(libs.google.arcore)
 
-    // Testes Unitários
+    /*
+     * Testes unitários
+     */
+
     testImplementation(libs.junit)
     testImplementation(libs.mockk)
     testImplementation(libs.truth)
     testImplementation(libs.kotlinx.coroutines.test)
 
-    // Testes Instrumentados
+    /*
+     * Testes instrumentados
+     */
+
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)
-    androidTestImplementation(platform(libs.androidx.compose.bom))
-    androidTestImplementation(libs.androidx.compose.ui.test.junit4)
+
+    androidTestImplementation(
+        platform(libs.androidx.compose.bom)
+    )
+
+    androidTestImplementation(
+        libs.androidx.compose.ui.test.junit4
+    )
 }

@@ -14,26 +14,60 @@ import org.koin.androidx.viewmodel.dsl.viewModel
 import org.koin.dsl.module
 
 val appModule = module {
-    single { ArCoreSessionManager(androidContext()) }
-    single { ArCoreFrameProcessor() }
-    single { ArCoreHitTestProcessor() }
 
-    single<SpatialSensorRepository> {
-        SpatialSensorRepositoryImpl(
-            frameProcessor = get(),
-            hitTestProcessor = get()
+    // Gerenciamento da sessão ARCore.
+    single {
+        ArCoreSessionManager(
+            context = androidContext()
         )
     }
 
-    factory { CalculateDistanceUseCase() }
-    factory { EstimateSpatialDimensionsUseCase() }
-    factory { ProjectWorldToScreenUseCase() }
+    // Processadores ARCore.
+    single {
+        ArCoreFrameProcessor()
+    }
 
+    single {
+        ArCoreHitTestProcessor()
+    }
+
+    // Implementação concreta do repositório.
+    single {
+        val sessionManager = get<ArCoreSessionManager>()
+
+        SpatialSensorRepositoryImpl(
+            frameProcessor = get<ArCoreFrameProcessor>(),
+            hitTestProcessor = get<ArCoreHitTestProcessor>(),
+            isDepthEnabledProvider = {
+                sessionManager.isDepthEnabled
+            }
+        )
+    }
+
+    // A interface utiliza a mesma instância concreta.
+    single<SpatialSensorRepository> {
+        get<SpatialSensorRepositoryImpl>()
+    }
+
+    // Casos de uso.
+    factory {
+        CalculateDistanceUseCase()
+    }
+
+    factory {
+        EstimateSpatialDimensionsUseCase()
+    }
+
+    factory {
+        ProjectWorldToScreenUseCase()
+    }
+
+    // ViewModel da tela de medição.
     viewModel {
         MeasurementViewModel(
-            spatialSensorRepository = get(),
-            calculateDistanceUseCase = get(),
-            projectWorldToScreenUseCase = get()
+            spatialSensorRepository = get<SpatialSensorRepository>(),
+            calculateDistanceUseCase = get<CalculateDistanceUseCase>(),
+            projectWorldToScreenUseCase = get<ProjectWorldToScreenUseCase>()
         )
     }
 }

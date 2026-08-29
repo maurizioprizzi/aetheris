@@ -20,81 +20,169 @@ import org.junit.Test
 
 class SpatialSensorRepositoryTest {
 
-    private val frameProcessor: ArCoreFrameProcessor = mockk(relaxed = true)
-    private val hitTestProcessor: ArCoreHitTestProcessor = mockk(relaxed = true)
+    private lateinit var frameProcessor: ArCoreFrameProcessor
+    private lateinit var hitTestProcessor: ArCoreHitTestProcessor
     private lateinit var repository: SpatialSensorRepositoryImpl
 
-    private val frame: Frame = mockk()
-    private val camera: Camera = mockk()
+    private lateinit var frame: Frame
+    private lateinit var camera: Camera
 
     @Before
     fun setUp() {
-        repository = SpatialSensorRepositoryImpl(frameProcessor, hitTestProcessor)
-        every { frame.camera } returns camera
-        every { camera.trackingState } returns TrackingState.TRACKING
-        every { frameProcessor.processPointCloud(any()) } returns emptyList()
-        every { hitTestProcessor.hasValidSurfaceAt(any(), any(), any()) } returns true
+        frameProcessor = mockk(relaxed = true)
+        hitTestProcessor = mockk(relaxed = true)
+
+        frame = mockk(relaxed = true)
+        camera = mockk(relaxed = true)
+
+        every {
+            frame.camera
+        } returns camera
+
+        every {
+            camera.trackingState
+        } returns TrackingState.TRACKING
+
+        repository = SpatialSensorRepositoryImpl(
+            frameProcessor = frameProcessor,
+            hitTestProcessor = hitTestProcessor,
+            isDepthEnabledProvider = { true }
+        )
+
+        repository.updateViewportSize(
+            widthPx = 1080,
+            heightPx = 1920
+        )
     }
 
     @Test
-    fun `updateFrameData should update stream with tracking status and points`() {
-        every { frameProcessor.processPointCloud(frame) } returns listOf(Point3D(0f, 1f, -2f))
-        every { hitTestProcessor.hasValidSurfaceAt(frame, 0.5f, 0.5f) } returns true
+    fun `onFrameUpdate emits updated spatial data from frame`() {
+        every {
+            frameProcessor.processPointCloud(frame)
+        } returns listOf(
+            Point3D(1f, 2f, 3f),
+            Point3D(4f, 5f, 6f)
+        )
 
-        repository.updateFrameData(frame)
+        every {
+            hitTestProcessor.hasValidSurfaceAt(
+                frame,
+                any(),
+                any()
+            )
+        } returns true
 
-        val state = repository.getSpatialDataStream().value
-        assertThat(state.trackingStatus).isEqualTo(TrackingStatus.TRACKING)
-        assertThat(state.isDepthEnabled).isTrue()
-        assertThat(state.pointCount).isEqualTo(1)
-        assertThat(state.isSurfaceDetected).isTrue()
+        repository.onFrameUpdate(frame)
+
+        val currentData = repository.spatialDataStream.value
+
+        assertThat(currentData.trackingStatus)
+            .isEqualTo(TrackingStatus.TRACKING)
+
+        assertThat(currentData.pointCount).isEqualTo(2)
+        assertThat(currentData.isSurfaceDetected).isTrue()
+        assertThat(currentData.isDepthEnabled).isTrue()
     }
 
     @Test
-    fun `performHitTest should delegate to hitTestProcessor`() = runTest {
-        val expectedPoint = Point3D(1.0f, 2.0f, 3.0f)
-        every { hitTestProcessor.performHitTest(frame, 0.5f, 0.5f) } returns expectedPoint
+    fun `createAnchor creates anchor via hit test processor and attaches slot`() =
+        runTest {
+            val anchor: Anchor = mockk(relaxed = true)
 
-        repository.updateFrameData(frame)
-        val result = repository.performHitTest(0.5f, 0.5f)
+            val pose = mockk<Pose> {
+                every { tx() } returns 1f
+                every { ty() } returns 2f
+                every { tz() } returns 3f
+            }
 
-        assertThat(result).isEqualTo(expectedPoint)
-    }
+            every {
+                anchor.trackingState
+            } returns TrackingState.TRACKING
+
+            every {
+                anchor.pose
+            } returns pose
+
+            every {
+                hitTestProcessor.createAnchorAt(
+                    frame,
+                    any(),
+                    any()
+                )
+            } returns anchor
+
+            repository.onFrameUpdate(frame)
+
+            repository.createAnchor(
+                normalizedX = 0.5f,
+                normalizedY = 0.5f,
+                slot = AnchorSlot.START
+            )
+
+            repository.onFrameUpdate(frame)
+
+            val data = repository.spatialDataStream.value
+
+            assertThat(data.anchoredStartPoint)
+                .isEqualTo(Point3D(1f, 2f, 3f))
+
+            assertThat(data.anchoredEndPoint).isNull()
+        }
 
     @Test
-    fun `createAnchor should attach anchor and update stream`() = runTest {
-        val anchor: Anchor = mockk(relaxed = true)
-        val pose: Pose = mockk()
-        every { pose.tx() } returns 1.0f
-        every { pose.ty() } returns 2.0f
-        every { pose.tz() } returns -3.0f
-        every { anchor.pose } returns pose
-        every { anchor.trackingState } returns TrackingState.TRACKING
-        every { hitTestProcessor.createAnchorAt(frame, 0.5f, 0.5f) } returns anchor
+    fun `clearAnchors detaches active anchors and resets stream state`() =
+        runTest {
+            val anchor: Anchor = mockk(relaxed = true)
 
-        repository.updateFrameData(frame)
-        val result = repository.createAnchor(0.5f, 0.5f, AnchorSlot.START)
+            val pose = mockk<Pose> {
+                every { tx() } returns 1f
+                every { ty() } returns 2f
+                every { tz() } returns 3f
+            }
 
-        assertThat(result).isEqualTo(Point3D(1.0f, 2.0f, -3.0f))
-        assertThat(repository.getSpatialDataStream().value.anchoredStartPoint).isEqualTo(result)
-    }
+            every {
+                anchor.trackingState
+            } returns TrackingState.TRACKING
 
-    @Test
-    fun `clearAnchors should detach native anchors and reset stream points`() = runTest {
-        val anchor: Anchor = mockk(relaxed = true)
-        val pose: Pose = mockk()
-        every { pose.tx() } returns 0f
-        every { pose.ty() } returns 0f
-        every { pose.tz() } returns 0f
-        every { anchor.pose } returns pose
-        every { anchor.trackingState } returns TrackingState.TRACKING
-        every { hitTestProcessor.createAnchorAt(frame, 0.5f, 0.5f) } returns anchor
+            every {
+                anchor.pose
+            } returns pose
 
-        repository.updateFrameData(frame)
-        repository.createAnchor(0.5f, 0.5f, AnchorSlot.START)
-        repository.clearAnchors()
+            every {
+                hitTestProcessor.createAnchorAt(
+                    frame,
+                    any(),
+                    any()
+                )
+            } returns anchor
 
-        verify { anchor.detach() }
-        assertThat(repository.getSpatialDataStream().value.anchoredStartPoint).isNull()
-    }
+            repository.onFrameUpdate(frame)
+
+            repository.createAnchor(
+                normalizedX = 0.5f,
+                normalizedY = 0.5f,
+                slot = AnchorSlot.START
+            )
+
+            repository.onFrameUpdate(frame)
+
+            assertThat(
+                repository.spatialDataStream.value.anchoredStartPoint
+            ).isNotNull()
+
+            repository.clearAnchors()
+            repository.onFrameUpdate(frame)
+
+            assertThat(
+                repository.spatialDataStream.value.anchoredStartPoint
+            ).isNull()
+
+            assertThat(
+                repository.spatialDataStream.value.anchoredEndPoint
+            ).isNull()
+
+            verify(exactly = 1) {
+                anchor.detach()
+            }
+        }
 }

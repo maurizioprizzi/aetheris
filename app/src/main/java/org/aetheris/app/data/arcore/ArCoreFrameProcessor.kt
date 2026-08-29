@@ -1,33 +1,57 @@
 package org.aetheris.app.data.arcore
 
 import com.google.ar.core.Frame
-import com.google.ar.core.PointCloud
+import com.google.ar.core.exceptions.DeadlineExceededException
+import com.google.ar.core.exceptions.NotYetAvailableException
 import org.aetheris.app.domain.model.Point3D
-import java.nio.FloatBuffer
 
 class ArCoreFrameProcessor(
-    private val confidenceThreshold: Float = 0.3f
+    private val confidenceThreshold: Float = DEFAULT_CONFIDENCE_THRESHOLD
 ) {
-    fun processPointCloud(frame: Frame): List<Point3D> {
-        val pointCloud: PointCloud = frame.acquirePointCloud() ?: return emptyList()
-        val points = mutableListOf<Point3D>()
-        try {
-            val buffer: FloatBuffer = pointCloud.points ?: return emptyList()
-            val numPoints = buffer.remaining() / 4
-
-            for (i in 0 until numPoints) {
-                val x = buffer.get(i * 4)
-                val y = buffer.get(i * 4 + 1)
-                val z = buffer.get(i * 4 + 2)
-                val confidence = buffer.get(i * 4 + 3)
-
-                if (confidence >= confidenceThreshold) {
-                    points.add(Point3D(x, y, z))
-                }
-            }
-        } finally {
-            pointCloud.release()
+    init {
+        require(
+            confidenceThreshold.isFinite() &&
+                    confidenceThreshold in 0f..1f
+        ) {
+            "O limite de confiança deve estar entre 0 e 1."
         }
-        return points
+    }
+
+    fun processPointCloud(frame: Frame): List<Point3D> {
+        return try {
+            frame.acquirePointCloud().use { pointCloud ->
+                val buffer = pointCloud.points.duplicate()
+                val pointCount = buffer.remaining() / VALUES_PER_POINT
+                val points = ArrayList<Point3D>(pointCount)
+
+                repeat(pointCount) {
+                    val x = buffer.get()
+                    val y = buffer.get()
+                    val z = buffer.get()
+                    val confidence = buffer.get()
+
+                    if (
+                        confidence.isFinite() &&
+                        confidence >= confidenceThreshold &&
+                        x.isFinite() &&
+                        y.isFinite() &&
+                        z.isFinite()
+                    ) {
+                        points.add(Point3D(x = x, y = y, z = z))
+                    }
+                }
+
+                points
+            }
+        } catch (_: DeadlineExceededException) {
+            emptyList()
+        } catch (_: NotYetAvailableException) {
+            emptyList()
+        }
+    }
+
+    private companion object {
+        const val VALUES_PER_POINT = 4
+        const val DEFAULT_CONFIDENCE_THRESHOLD = 0.3f
     }
 }

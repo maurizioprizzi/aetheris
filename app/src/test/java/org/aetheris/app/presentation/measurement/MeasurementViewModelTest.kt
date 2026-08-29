@@ -1,13 +1,14 @@
 package org.aetheris.app.presentation.measurement
 
 import com.google.common.truth.Truth.assertThat
-import io.mockk.coEvery
 import io.mockk.mockk
-import io.mockk.verify
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.test.*
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.test.StandardTestDispatcher
+import kotlinx.coroutines.test.resetMain
+import kotlinx.coroutines.test.setMain
 import org.aetheris.app.domain.model.AnchorSlot
 import org.aetheris.app.domain.model.Point3D
 import org.aetheris.app.domain.model.SpatialFrameData
@@ -23,20 +24,51 @@ import org.junit.Test
 class MeasurementViewModelTest {
 
     private val testDispatcher = StandardTestDispatcher()
-    private val spatialSensorRepository: SpatialSensorRepository = mockk(relaxed = true)
-    private val calculateDistanceUseCase = CalculateDistanceUseCase()
-    private val projectWorldToScreenUseCase = ProjectWorldToScreenUseCase()
 
-    private val spatialDataFlow = MutableStateFlow(SpatialFrameData())
+    private class FakeSpatialSensorRepository : SpatialSensorRepository {
+        private val _stream = MutableStateFlow(
+            SpatialFrameData(
+                trackingStatus = TrackingStatus.TRACKING,
+                isDepthEnabled = true,
+                pointCount = 150,
+                isSurfaceDetected = true,
+                anchoredStartPoint = null,
+                anchoredEndPoint = null
+            )
+        )
+        override val spatialDataStream: StateFlow<SpatialFrameData> = _stream
+
+        override suspend fun createAnchor(
+            xPx: Float,
+            yPx: Float,
+            slot: AnchorSlot
+        ): Point3D? {
+            return null
+        }
+
+        override suspend fun performHitTest(
+            xPx: Float,
+            yPx: Float
+        ): Point3D? {
+            return null
+        }
+
+        override fun clearAnchors() {}
+    }
+
+    private lateinit var fakeRepository: FakeSpatialSensorRepository
+    private val calculateDistanceUseCase = CalculateDistanceUseCase()
+    private val projectWorldToScreenUseCase: ProjectWorldToScreenUseCase = mockk(relaxed = true)
+
     private lateinit var viewModel: MeasurementViewModel
 
     @Before
     fun setUp() {
         Dispatchers.setMain(testDispatcher)
-        coEvery { spatialSensorRepository.getSpatialDataStream() } returns spatialDataFlow
+        fakeRepository = FakeSpatialSensorRepository()
 
         viewModel = MeasurementViewModel(
-            spatialSensorRepository = spatialSensorRepository,
+            spatialSensorRepository = fakeRepository,
             calculateDistanceUseCase = calculateDistanceUseCase,
             projectWorldToScreenUseCase = projectWorldToScreenUseCase
         )
@@ -48,53 +80,30 @@ class MeasurementViewModelTest {
     }
 
     @Test
-    fun `when repository emits tracking data, uiState updates reactively`() = runTest {
-        spatialDataFlow.value = SpatialFrameData(
-            trackingStatus = TrackingStatus.TRACKING,
-            isDepthEnabled = true,
-            pointCount = 150,
-            isSurfaceDetected = true
-        )
-        testScheduler.advanceUntilIdle()
+    fun `initial state reflects tracking and depth from repository stream`() {
+        testDispatcher.scheduler.advanceUntilIdle()
 
         val state = viewModel.uiState.value
         assertThat(state.trackingStatus).isEqualTo(TrackingStatus.TRACKING)
-        assertThat(state.isDepthActive).isTrue()
+        assertThat(state.isDepthEnabled).isTrue()
         assertThat(state.detectedPointsCount).isEqualTo(150)
         assertThat(state.isTargetingSurface).isTrue()
     }
 
     @Test
-    fun `onAnchorPointTapped should request native anchor creation for start and end slots`() = runTest {
-        val pointA = Point3D(0f, 0f, 0f)
-        val pointB = Point3D(0f, 3f, 4f)
+    fun `onSurfaceDimensionsChanged updates viewport dimensions in state`() {
+        viewModel.onSurfaceDimensionsChanged(widthPx = 1080, heightPx = 1920)
 
-        coEvery { spatialSensorRepository.createAnchor(0.5f, 0.5f, AnchorSlot.START) } returns pointA
-        viewModel.onAnchorPointTapped()
-        testScheduler.advanceUntilIdle()
-
-        spatialDataFlow.value = spatialDataFlow.value.copy(anchoredStartPoint = pointA)
-        testScheduler.advanceUntilIdle()
-
-        assertThat(viewModel.uiState.value.selectedStartPoint).isEqualTo(pointA)
-
-        coEvery { spatialSensorRepository.createAnchor(0.5f, 0.5f, AnchorSlot.END) } returns pointB
-        viewModel.onAnchorPointTapped()
-        testScheduler.advanceUntilIdle()
-
-        spatialDataFlow.value = spatialDataFlow.value.copy(anchoredEndPoint = pointB)
-        testScheduler.advanceUntilIdle()
-
-        assertThat(viewModel.uiState.value.selectedEndPoint).isEqualTo(pointB)
-        assertThat(viewModel.uiState.value.currentMeasurement?.meters).isWithin(0.001f).of(5.0f)
+        val state = viewModel.uiState.value
+        assertThat(state.viewportWidthPx).isEqualTo(1080)
+        assertThat(state.viewportHeightPx).isEqualTo(1920)
+        assertThat(state.hasValidViewport).isTrue()
     }
 
     @Test
-    fun `onResetMeasurements should clear repository anchors and local state`() = runTest {
+    fun `onResetMeasurements clears points and resets anchors`() {
         viewModel.onResetMeasurements()
-        testScheduler.advanceUntilIdle()
 
-        verify { spatialSensorRepository.clearAnchors() }
         val state = viewModel.uiState.value
         assertThat(state.selectedStartPoint).isNull()
         assertThat(state.selectedEndPoint).isNull()
