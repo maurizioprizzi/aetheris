@@ -17,8 +17,10 @@ import androidx.compose.ui.unit.sp
 import org.aetheris.app.data.arcore.ArCoreSessionManager
 import org.aetheris.app.domain.model.TrackingStatus
 import org.aetheris.app.presentation.components.ArCameraFeed
+import org.aetheris.app.presentation.components.FloatingMeasurementBadge
 import org.aetheris.app.presentation.permissions.CameraPermissionHandler
 import org.koin.androidx.compose.koinViewModel
+import java.util.Locale
 
 @Composable
 fun MeasurementScreen(
@@ -30,7 +32,7 @@ fun MeasurementScreen(
 
     CameraPermissionHandler {
         Box(modifier = Modifier.fillMaxSize()) {
-            // Camada 0: Feed de Vídeo da Câmera / OpenGL ES 3.0 / ARCore
+            // Camada 0: Feed da Câmera + OpenGL ES 3.0
             ArCameraFeed(
                 sessionManager = sessionManager,
                 modifier = Modifier.fillMaxSize(),
@@ -39,12 +41,21 @@ fun MeasurementScreen(
                 onSurfaceChanged = { width, height ->
                     viewModel.onSurfaceDimensionsChanged(width, height)
                 },
+                onMatricesUpdated = { viewMatrix, projectionMatrix ->
+                    viewModel.onCameraMatricesUpdated(viewMatrix, projectionMatrix)
+                },
                 onFrameAvailable = { frame ->
                     viewModel.processFrame(frame)
                 }
             )
 
-            // Telemetria Superior (HUD Tático)
+            // Camada 1: Badge Flutuante World-to-Screen
+            FloatingMeasurementBadge(
+                measurement = uiState.currentMeasurement,
+                screenPosition = uiState.badgePosition
+            )
+
+            // Camada 2: Telemetria Superior (HUD)
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -71,7 +82,7 @@ fun MeasurementScreen(
                 )
             }
 
-            // Retículo Central de Mira Reativo
+            // Retículo Central
             Box(
                 modifier = Modifier
                     .size(24.dp)
@@ -83,7 +94,7 @@ fun MeasurementScreen(
                     )
             )
 
-            // Painel Inferior de Resultados e Controle de Ancoragem
+            // Painel Inferior de Controle
             Card(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -99,14 +110,14 @@ fun MeasurementScreen(
                     val measurement = uiState.currentMeasurement
                     if (measurement != null) {
                         Text(
-                            text = "${String.format("%.3f", measurement.meters)} m",
+                            text = String.format(Locale.US, "%.3f m", measurement.meters),
                             fontSize = 36.sp,
                             fontWeight = FontWeight.Bold,
                             fontFamily = FontFamily.Monospace,
                             color = Color.White
                         )
                         Text(
-                            text = "± ${String.format("%.4f", measurement.uncertaintyMeters)} m",
+                            text = String.format(Locale.US, "±%.4f m", measurement.uncertaintyMeters),
                             fontSize = 13.sp,
                             fontFamily = FontFamily.Monospace,
                             color = Color(0xFF8B949E)

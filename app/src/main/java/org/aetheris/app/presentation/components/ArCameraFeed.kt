@@ -32,6 +32,7 @@ fun ArCameraFeed(
     startPoint: Point3D? = null,
     endPoint: Point3D? = null,
     onSurfaceChanged: (width: Int, height: Int) -> Unit = { _, _ -> },
+    onMatricesUpdated: (viewMatrix: FloatArray, projectionMatrix: FloatArray) -> Unit = { _, _ -> },
     onFrameAvailable: (Frame) -> Unit = {}
 ) {
     val context = LocalContext.current
@@ -113,7 +114,6 @@ fun ArCameraFeed(
                         val session = sessionManager.session ?: return
                         if (!sessionManager.isRunning) return
 
-                        // Vincula o ID da textura OES ao ARCore assim que a sessão estiver pronta
                         if (!isTextureBound && backgroundRenderer.textureId != -1) {
                             session.setCameraTextureNames(intArrayOf(backgroundRenderer.textureId))
                             isTextureBound = true
@@ -123,14 +123,13 @@ fun ArCameraFeed(
                             val frame = session.update()
                             val camera = frame.camera
 
-                            // 1. Renderiza o vídeo real da câmera
                             backgroundRenderer.draw(frame)
 
-                            // 2. Extrai as matrizes de projeção do mundo 3D
                             camera.getViewMatrix(viewMatrix, 0)
                             camera.getProjectionMatrix(projectionMatrix, 0, 0.1f, 100.0f)
 
-                            // 3. Renderiza as linhas e pontos 3D
+                            onMatricesUpdated(viewMatrix, projectionMatrix)
+
                             spatialLineRenderer.draw(
                                 viewMatrix = viewMatrix,
                                 projectionMatrix = projectionMatrix,
@@ -138,16 +137,11 @@ fun ArCameraFeed(
                                 endPoint = currentEndPoint
                             )
 
-                            // 4. Notifica a UI com o frame atualizado
                             onFrameAvailable(frame)
                         } catch (e: SessionPausedException) {
-                            // Ignora frames durante transições de ciclo de vida
                         } catch (e: CameraNotAvailableException) {
-                            // Câmera temporariamente ocupada
                         } catch (e: NotYetAvailableException) {
-                            // Frame intermediário
                         } catch (e: Throwable) {
-                            // Protege o loop gráfico contra quedas
                         }
                     }
                 })

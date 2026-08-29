@@ -1,9 +1,10 @@
 package org.aetheris.app.domain.model
 
 data class SpatialFrameData(
-    val cameraPose: Point3D = Point3D.ORIGIN,
-    val pointCloud: List<Point3D> = emptyList(),
-    val trackingStatus: TrackingStatus = TrackingStatus.INITIALIZING,
-    val isDepthAvailable: Boolean = false,
-    val timestampMillis: Long = System.currentTimeMillis()
+    val trackingStatus: TrackingStatus = TrackingStatus.UNAVAILABLE,
+    val isDepthEnabled: Boolean = false,
+    val pointCount: Int = 0,
+    val isSurfaceDetected: Boolean = false,
+    val anchoredStartPoint: Point3D? = null,
+    val anchoredEndPoint: Point3D? = null
 )
