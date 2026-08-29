@@ -1,4 +1,4 @@
-# 🌌 Aetheris
+# 🪐 Aetheris
 
 [![Android CI](https://github.com/maurizioprizzi/aetheris/actions/workflows/android.yml/badge.svg)](https://github.com/maurizioprizzi/aetheris/actions/workflows/android.yml)
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
@@ -14,7 +14,10 @@
 
 ## 🔬 Scientific & Metrology Core
 
-- **Spatial Distance & Vector Tracking:** Real-time range estimation using spatial raycasting with dynamic Gaussian uncertainty propagation ($\pm\sigma$).
+- **Native SLAM Anchor Tracking:** Anti-drift spatial node binding with ARCore native anchors (`Anchor`), automatically correcting Euclidean coordinates via loop closure and pose graph updates.
+- **World-to-Screen Projective Geometry:** Real-time 3D-to-2D perspective transformation pipeline with frustum clipping ($w_c \le 0$) driving dynamic Jetpack Compose overlays.
+- **Floating Tactical Badge:** Real-time floating HUD badge in Compose tracking spatial vector midpoints with dynamic distance and Gaussian uncertainty ($\pm\sigma$).
+- **Spatial Distance & Vector Tracking:** Real-time range estimation using spatial raycasting with metric uncertainty propagation.
 - **Hardware-Accelerated 3D Rendering:** Native OpenGL ES 3.0 shaders rendering real-time metric vectors (`GL_LINES`) and anchor nodes (`GL_POINTS`) with zero GC overhead.
 - **Zero-Copy Camera Pipeline:** Direct GPU decoding of the camera stream via `GL_TEXTURE_EXTERNAL_OES` and dynamic display geometry mapping (`transformCoordinates2d`).
 - **Convex Polygon Gating:** Hardware hit-testing constrained to physical support planes (`isPoseInPolygon`), with deterministic fallback to active ToF/Depth points.
@@ -24,20 +27,20 @@
 
 ---
 
-## 🏗️ Architecture & Tech Stack
+## 🏛️ Architecture & Tech Stack
 
 The system strictly adheres to **Clean Architecture** and **Unidirectional Data Flow (UDF)**:
 
-- **Pure JVM Domain:** Core mathematical models, metric calculations, and uncertainty propagation completely isolated from Android SDK dependencies.
+- **Pure JVM Domain:** Core mathematical models, metric calculations, projective transforms, and uncertainty propagation completely isolated from Android SDK dependencies.
 - **Hardware & Graphics Pipeline:** Low-level ARCore 1.46.0 lifecycle management, OpenGL ES 3.0 (`GLSurfaceView` with `rememberUpdatedState`), and reactive telemetry streams via `StateFlow`.
 - **16 KB Memory Alignment:** 100% compliant with Android 15+ ARM64 16 KB page size architecture (`useLegacyPackaging = false`).
 - **Declarative UI Layer:** Real-time tactical HUD built natively in **Jetpack Compose** with Material 3.
 - **Dependency Injection:** **Koin** for clean, lightweight module wiring without annotation processing overhead.
-- **Testing Suite:** Comprehensive JVM unit testing with **JUnit 4**, **MockK**, **Google Truth**, and **kotlinx-coroutines-test**.
+- **Testing Suite:** Comprehensive JVM unit testing with **JUnit 4**, **MockK**, **Google Truth**, and **kotlinx-coroutines-test** (25/25 tests passing).
 
 ---
 
-## 🏛️ Architecture Decision Records (ADR)
+## 📋 Architecture Decision Records (ADR)
 
 All technical and algorithmic decisions are documented under `/docs/adr`:
 
@@ -53,6 +56,7 @@ All technical and algorithmic decisions are documented under `/docs/adr`:
 - `ADR-010`: EGL Context & ARCore Lifecycle Isolation
 - `ADR-011`: Spatial Raycasting and Convex Polygon Gating
 - `ADR-012`: Zero-Copy OES Camera Texture and OpenGL ES 3.0 Spatial Geometry Pipeline
+- `ADR-013`: Native ARCore Anchor Tracking & Pose Graph Correction
 
 ---
 

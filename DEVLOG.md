@@ -1,10 +1,48 @@
-# 📘 Aetheris - Diário de Desenvolvimento (DEVLOG)
+# 🪐 Aetheris - Diário de Desenvolvimento (DEVLOG)
 
 Registro contínuo da engenharia, decisões arquiteturais (ADRs), modelagem matemática e evolução do ecossistema Aetheris.
 
 ---
 
-## 🚀 [Dia 07] - 2026-08-28: Pipeline Gráfico OpenGL ES 3.0, Estabilização EGL e Compatibilidade 16 KB
+## 📌 [Dia 08] - 2026-08-29: Projeção World-to-Screen, Badge Flutuante em Compose e Ancoragem Anti-Drift (ARCore Anchor)
+
+### 🎯 Objetivos Concluídos
+- [x] Implementação do caso de uso `ProjectWorldToScreenUseCase` realizando a transformação projetiva completa ($3\text{D} \to 2\text{D}$): coordenadas de mundo $\to$ clip space ($M_{proj} \times M_{view}$) $\to$ coordenadas normalizadas de dispositivo (NDC) $\to$ espaço de tela em pixels.
+- [x] Adição de guarda de *Frustum Clipping* ($w_c \le 0$) para ocultar instantaneamente o badge quando o vetor de medição estiver atrás do plano da câmera, evitando divisão por zero e artefatos de projeção invertida.
+- [x] Renderização da etiqueta flutuante reativa (`FloatingMeasurementBadge`) em Jetpack Compose, acompanhando o ponto médio do vetor espacial com leitura de distância e incerteza ($\pm\sigma$) em tempo real.
+- [x] Modelagem de nós espaciais (`AnchorSlot.START`, `AnchorSlot.END`) no domínio e extensão de `SpatialFrameData`.
+- [x] Implementação de `createAnchorAt` em `ArCoreHitTestProcessor` com suporte a planos poligonais e pontos ToF/Depth.
+- [x] Gerenciamento determinístico do ciclo de vida nativo de âncoras (`createAnchor`, `detach`) no `SpatialSensorRepositoryImpl`, corrigindo automaticamente as coordenadas $(tx, ty, tz)$ a cada otimização do grafo de poses do SLAM.
+- [x] Reatividade no `MeasurementViewModel` propagando medições corrigidas continuamente sem provocar *GC churn*.
+- [x] Resolução de conflito estrutural de *Class Shadowing* no source set de testes e consolidação de **25/25 testes unitários na JVM** passando com MockK e Google Truth.
+- [x] Registro da decisão arquitetural formal no `ADR-013`.
+
+### 🔬 Desafios de Engenharia & Diagnóstico em Hardware
+1. **Class Shadowing no Source Set de Testes:**
+  - *Causa:* O arquivo `ArCoreHitTestProcessorTest.kt` continha uma declaração acidental de `class ArCoreHitTestProcessor` no diretório `src/test/`, mascarando a classe real de produção em `src/main/` e impedindo a resolução de novos métodos durante a compilação de testes unitários.
+  - *Solução:* Substituição do stub por uma suíte de testes unitários legítima cobrindo criação de âncoras, hit-testing de planos e validação de superfícies.
+2. **Derivação Métrica Espacial (Drift em Medições Longas):**
+  - *Causa:* Coordenadas euclidianas estáticas $(X, Y, Z)$ salvas no primeiro frame sofriam descolamento visual quando o otimizador SLAM/BA do ARCore recalculava a origem do mundo durante a movimentação do usuário.
+  - *Solução:* Vinculação dos nós a objetos nativos `com.google.ar.core.Anchor` com consulta dinâmica da `Pose` a cada ciclo de `updateFrameData`.
+3. **Frustum Culling de Elementos 2D:**
+  - *Causa:* Projeções matemáticas convencionais sem validação de $w_c$ geravam posições de tela espelhadas quando o usuário virava de costas para o objeto medido.
+  - *Solução:* Retorno determinístico de `null` no caso de uso caso $w_c \le 0.001\text{f}$, instruindo o Compose a não desenhar o badge fora do cone de visão da câmera.
+
+### 📱 Métricas de Validação no Dispositivo (Motorola Edge 50 Fusion)
+- **Convergência VIO (Visual-Inertial Odometry):** Inicialização recorde atingindo `VIO_TRACKING` em apenas **398,05 ms** (redução de 9,7% em relação aos 441 ms do Dia 07).
+- **Consistência Geométrica do SLAM:** Otimização de mapa (`MAP SOLVE: USER_SUCCESS`) reduzindo o custo de $20.349$ para $171$ em 4 iterações, com 26 keyframes e 212 marcos mapeados.
+- **Taxa de Inliers Visuais:** **93,1% de inliers consistentes** (94 pontos rastreados simultaneamente).
+- **Estabilidade de Ancoragem:** Deslocamento nulo da linha 3D e do badge flutuante após caminhada de 10 metros com perda e recuperação total de linha de visada.
+- **Performance de Testes:** 25 testes unitários executados em ~2s na JVM.
+
+### 🏛️ Decisões de Arquitetura (ADR)
+- **ADR-013: Native ARCore Anchor Tracking & Pose Graph Correction**
+  - **Contexto:** Necessidade de manter pontos de medição milimetricamente fixos em relação aos objetos reais durante movimentações longas no espaço.
+  - **Decisão:** Associação dos pontos A e B a nós nativos `Anchor` do ARCore, propagação frame a frame das coordenadas corrigidas pelo grafo de poses via `StateFlow` e invocação determinística de `anchor.detach()` para prevenção de vazamento de memória nativa C++.
+
+---
+
+## 📌 [Dia 07] - 2026-08-28: Pipeline Gráfico OpenGL ES 3.0, Estabilização EGL e Compatibilidade 16 KB
 
 ### 🎯 Objetivos Concluídos
 - [x] Criação do `BackgroundRenderer` com shaders GLSL ES 3.0 e suporte a `GL_TEXTURE_EXTERNAL_OES` para projeção com *zero-copy* do feed de vídeo da câmera.
@@ -16,7 +54,7 @@ Registro contínuo da engenharia, decisões arquiteturais (ADRs), modelagem mate
 - [x] Criação da suíte `SpatialLineMathTest` e atualização de `MeasurementViewModelTest` com 100% dos testes unitários passando na JVM.
 - [x] Registro da decisão arquitetural no `ADR-012`.
 
-### 🛠️ Desafios de Engenharia & Diagnóstico em Hardware
+### 🔬 Desafios de Engenharia & Diagnóstico em Hardware
 1. **Condição de Corrida no Ciclo de Vida do ARCore (`AR_ERROR_SESSION_PAUSED`):**
   - *Causa:* A `GLThread` chamava `session.update()` antes da Main Thread executar `session.resume()`, e o encerramento concorrente no `onPause` causava falha de precondição no scheduler do MediaPipe.
   - *Solução:* Centralização estrita do ciclo de vida na Main Thread via flag `@Volatile isRunning` e sincronização determinística no `DisposableEffect` (no pause: paralisa a `GLSurfaceView` antes da `Session`; no resume: retoma a `Session` antes da `GLSurfaceView`).
@@ -27,7 +65,7 @@ Registro contínuo da engenharia, decisões arquiteturais (ADRs), modelagem mate
   - *Causa:* Chamadas repetidas a `session.setCameraTextureNames()` a 60 FPS no `onDrawFrame` e coordenadas UV não inicializadas no primeiro frame.
   - *Solução:* Vinculação atômica única do ID de textura OES, amostragem obrigatória com `GL_CLAMP_TO_EDGE` e transformação contínua de coordenadas normalizadas no `BackgroundRenderer`.
 
-### 📊 Métricas de Validação no Dispositivo (Motorola Edge 50 Fusion)
+### 📱 Métricas de Validação no Dispositivo (Motorola Edge 50 Fusion)
 - **Taxa de Quadros:** 60 FPS contínuos e sustentados ao longo de mais de 850 frames de vídeo renderizados.
 - **Convergência VIO (Visual-Inertial Odometry):** Transição para `VIO_TRACKING` em apenas **441 ms**.
 - **Mapeamento Espacial 3D:** Construção de mapa ADF contendo 26 keyframes, 252 landmarks físicos e taxa de inliers visuais de **94,6%**.
@@ -40,7 +78,7 @@ Registro contínuo da engenharia, decisões arquiteturais (ADRs), modelagem mate
 
 ---
 
-## 🔬 [Dia 06] - 2026-08-27: Spatial Raycasting, Polygon Gating e Testes Unitários de Colisão
+## 📌 [Dia 06] - 2026-08-27: Spatial Raycasting, Polygon Gating e Testes Unitários de Colisão
 
 ### 🎯 Objetivos Concluídos
 - [x] Criação do processador de baixo nível `ArCoreHitTestProcessor` para projeção de raios ópticos a partir de coordenadas normalizadas de tela $[0.0, 1.0]$.
@@ -59,7 +97,7 @@ Registro contínuo da engenharia, decisões arquiteturais (ADRs), modelagem mate
 
 ---
 
-## 📷 [Dia 05] - 2026-08-26: Hardware Óptico, Ciclo de Vida ARCore e Testes Unitários de Apresentação
+## 📌 [Dia 05] - 2026-08-26: Hardware Óptico, Ciclo de Vida ARCore e Testes Unitários de Apresentação
 
 ### 🎯 Objetivos Concluídos
 - [x] Implementação do gerenciador declarativo de permissões em tempo de execução `CameraPermissionHandler` no Jetpack Compose.
@@ -81,7 +119,7 @@ Registro contínuo da engenharia, decisões arquiteturais (ADRs), modelagem mate
 
 ---
 
-## 🎛️ [Dia 04] - 2026-08-25: Processamento de Buffers AR e Interface HUD em Jetpack Compose
+## 📌 [Dia 04] - 2026-08-25: Processamento de Buffers AR e Interface HUD em Jetpack Compose
 
 ### 🎯 Objetivos Concluídos
 - [x] Criação do extrator de baixo nível `ArCoreFrameProcessor` com filtro de confiança para conversão de `FloatBuffer` em `List<Point3D>`.
@@ -104,7 +142,7 @@ Registro contínuo da engenharia, decisões arquiteturais (ADRs), modelagem mate
 
 ---
 
-## 📡 [Dia 03] - 2026-08-24: Contrato de Repositório de Sensores e Telemetria Reativa
+## 📌 [Dia 03] - 2026-08-24: Contrato de Repositório de Sensores e Telemetria Reativa
 
 ### 🎯 Objetivos Concluídos
 - [x] Criação dos modelos de telemetria espacial (`TrackingStatus`, `SpatialFrameData`).
@@ -124,7 +162,7 @@ Registro contínuo da engenharia, decisões arquiteturais (ADRs), modelagem mate
 
 ---
 
-## 📐 [Dia 02] - 2026-08-23: Domínio Matemático Puro e Modelagem Física
+## 📌 [Dia 02] - 2026-08-23: Domínio Matemático Puro e Modelagem Física
 
 ### 🎯 Objetivos Concluídos
 - [x] Criação das entidades imutáveis: `Point3D`, `BoundingBox3D`, `DistanceMeasurement`, `MassEstimate`.
@@ -140,7 +178,7 @@ Registro contínuo da engenharia, decisões arquiteturais (ADRs), modelagem mate
 
 ---
 
-## 🏗️ [Dia 01] - 2026-08-22: Fundação, Setup e Governança
+## 📌 [Dia 01] - 2026-08-22: Fundação, Setup e Governança
 
 ### 🎯 Objetivos Concluídos
 - [x] Configuração do projeto com Kotlin 2.x, Jetpack Compose (Material 3), Gradle Kotlin DSL e Version Catalogs (`libs.versions.toml`).
@@ -156,7 +194,8 @@ Registro contínuo da engenharia, decisões arquiteturais (ADRs), modelagem mate
 
 ---
 
-## 🔮 Próximos Passos (Dia 08)
-- [ ] Implementação de projeção World-to-Screen para cálculo do ponto médio 2D do vetor tridimensional.
-- [ ] Renderização de etiqueta/badge flutuante em Compose (distância + incerteza $\pm\sigma$) acompanhando a linha 3D em tempo real.
-- [ ] Persistência de âncoras nativas do ARCore (`Anchor`) para mitigar *drift* de odometria visual-inercial em medições de longa duração.
+## 🚀 Próximos Passos (Dia 09)
+- [ ] Implementação de medição multi-ponto e sequenciamento de polilinhas 3D (`Polyline3D`).
+- [ ] Algoritmo de cálculo de área de superfícies coplanares poligonais (Fórmula de Shoelace 3D / Teorema de Stokes).
+- [ ] Renderização de malha poligonal translúcida com preenchimento via `GL_TRIANGLE_FAN` no OpenGL ES 3.0.
+- [ ] Exportação de telemetria espacial e relatórios metrológicos (JSON/CSV).
