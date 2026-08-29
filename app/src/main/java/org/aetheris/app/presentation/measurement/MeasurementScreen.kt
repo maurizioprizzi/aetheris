@@ -53,7 +53,8 @@ fun MeasurementScreen(
     viewModel: MeasurementViewModel = koinViewModel(),
     sessionManager: ArCoreSessionManager = koinInject()
 ) {
-    val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+    val uiState by viewModel.uiState
+        .collectAsStateWithLifecycle()
 
     val snackbarHostState = remember {
         SnackbarHostState()
@@ -70,9 +71,12 @@ fun MeasurementScreen(
                 modifier = Modifier.fillMaxSize(),
                 startPoint = uiState.selectedStartPoint,
                 endPoint = uiState.selectedEndPoint,
-                onSurfaceChanged = viewModel::onSurfaceDimensionsChanged,
-                onMatricesUpdated = viewModel::onCameraMatricesUpdated,
-                onFrameAvailable = viewModel::processFrame,
+                onSurfaceChanged =
+                    viewModel::onSurfaceDimensionsChanged,
+                onMatricesUpdated =
+                    viewModel::onCameraMatricesUpdated,
+                onFrameAvailable =
+                    viewModel::processFrame,
                 onError = { error ->
                     coroutineScope.launch {
                         snackbarHostState.showSnackbar(
@@ -84,8 +88,8 @@ fun MeasurementScreen(
             )
 
             /*
-             * O badge ocupa a mesma área usada pela câmera para que
-             * as coordenadas projetadas correspondam com exatidão.
+             * O indicador ocupa a mesma área usada pela câmera,
+             * mantendo as coordenadas projetadas alinhadas à tela.
              */
             FloatingMeasurementBadge(
                 measurement = uiState.currentMeasurement,
@@ -96,11 +100,14 @@ fun MeasurementScreen(
             MeasurementTelemetryHud(
                 trackingStatus = uiState.trackingStatus,
                 isDepthActive = uiState.isDepthEnabled,
-                detectedPointCount = uiState.detectedPointsCount,
+                detectedPointCount =
+                    uiState.detectedPointsCount,
                 modifier = Modifier
                     .align(Alignment.TopCenter)
                     .fillMaxWidth()
-                    .windowInsetsPadding(WindowInsets.safeDrawing)
+                    .windowInsetsPadding(
+                        WindowInsets.safeDrawing
+                    )
                     .padding(
                         horizontal = 16.dp,
                         vertical = 8.dp
@@ -108,22 +115,39 @@ fun MeasurementScreen(
             )
 
             TargetReticle(
-                isTargetingSurface = uiState.isTargetingSurface,
-                modifier = Modifier.align(Alignment.Center)
+                isTargetingSurface =
+                    uiState.isTargetingSurface,
+                modifier = Modifier.align(
+                    Alignment.Center
+                )
             )
 
             MeasurementControlPanel(
                 measurement = uiState.currentMeasurement,
                 trackingStatus = uiState.trackingStatus,
-                isTargetingSurface = uiState.isTargetingSurface,
-                hasStartPoint = uiState.selectedStartPoint != null,
-                hasEndPoint = uiState.selectedEndPoint != null,
-                onPlaceAnchor = viewModel::onAnchorPointTapped,
-                onReset = viewModel::onResetMeasurements,
+                isTargetingSurface =
+                    uiState.isTargetingSurface,
+                hasStartPoint =
+                    uiState.selectedStartPoint != null,
+                hasEndPoint =
+                    uiState.selectedEndPoint != null,
+                isAnchorPlacementInProgress =
+                    uiState.isAnchorPlacementInProgress,
+                canPlaceAnchor =
+                    uiState.canPlaceAnchor,
+                canReset =
+                    uiState.canResetMeasurement ||
+                            uiState.isAnchorPlacementInProgress,
+                onPlaceAnchor =
+                    viewModel::onAnchorPointTapped,
+                onReset =
+                    viewModel::onResetMeasurements,
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
                     .fillMaxWidth()
-                    .windowInsetsPadding(WindowInsets.safeDrawing)
+                    .windowInsetsPadding(
+                        WindowInsets.safeDrawing
+                    )
                     .padding(16.dp)
             )
 
@@ -131,7 +155,9 @@ fun MeasurementScreen(
                 hostState = snackbarHostState,
                 modifier = Modifier
                     .align(Alignment.TopCenter)
-                    .windowInsetsPadding(WindowInsets.safeDrawing)
+                    .windowInsetsPadding(
+                        WindowInsets.safeDrawing
+                    )
                     .padding(
                         start = 16.dp,
                         top = 72.dp,
@@ -149,11 +175,15 @@ private fun MeasurementTelemetryHud(
     detectedPointCount: Int,
     modifier: Modifier = Modifier
 ) {
-    Column(modifier = modifier) {
+    Column(
+        modifier = modifier
+    ) {
         Row(
             modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
+            horizontalArrangement =
+                Arrangement.SpaceBetween,
+            verticalAlignment =
+                Alignment.CenterVertically
         ) {
             TrackingStatusBadge(
                 status = trackingStatus
@@ -164,7 +194,9 @@ private fun MeasurementTelemetryHud(
             )
         }
 
-        Spacer(modifier = Modifier.height(12.dp))
+        Spacer(
+            modifier = Modifier.height(12.dp)
+        )
 
         Text(
             text = "PONTOS: $detectedPointCount",
@@ -205,28 +237,25 @@ private fun MeasurementControlPanel(
     isTargetingSurface: Boolean,
     hasStartPoint: Boolean,
     hasEndPoint: Boolean,
+    isAnchorPlacementInProgress: Boolean,
+    canPlaceAnchor: Boolean,
+    canReset: Boolean,
     onPlaceAnchor: () -> Unit,
     onReset: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val canPlaceAnchor =
-        trackingStatus.allowsAnchorPlacement &&
-                isTargetingSurface &&
-                !hasEndPoint
-
-    val hasAnyAnchor =
-        hasStartPoint || hasEndPoint
-
     Card(
         modifier = modifier,
         colors = CardDefaults.cardColors(
-            containerColor = PanelColor.copy(alpha = 0.92f)
+            containerColor =
+                PanelColor.copy(alpha = 0.92f)
         ),
         shape = RoundedCornerShape(16.dp)
     ) {
         Column(
             modifier = Modifier.padding(20.dp),
-            horizontalAlignment = Alignment.CenterHorizontally
+            horizontalAlignment =
+                Alignment.CenterHorizontally
         ) {
             if (measurement != null) {
                 MeasurementResult(
@@ -235,17 +264,23 @@ private fun MeasurementControlPanel(
             } else {
                 MeasurementInstruction(
                     trackingStatus = trackingStatus,
-                    isTargetingSurface = isTargetingSurface,
+                    isTargetingSurface =
+                        isTargetingSurface,
                     hasStartPoint = hasStartPoint,
-                    hasEndPoint = hasEndPoint
+                    hasEndPoint = hasEndPoint,
+                    isAnchorPlacementInProgress =
+                        isAnchorPlacementInProgress
                 )
             }
 
-            Spacer(modifier = Modifier.height(16.dp))
+            Spacer(
+                modifier = Modifier.height(16.dp)
+            )
 
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(12.dp)
+                horizontalArrangement =
+                    Arrangement.spacedBy(12.dp)
             ) {
                 Button(
                     onClick = onPlaceAnchor,
@@ -256,21 +291,39 @@ private fun MeasurementControlPanel(
                     )
                 ) {
                     Text(
-                        text = anchorButtonLabel(
-                            hasStartPoint = hasStartPoint,
-                            hasEndPoint = hasEndPoint
-                        )
+                        text = if (
+                            isAnchorPlacementInProgress
+                        ) {
+                            "Fixando ponto..."
+                        } else {
+                            anchorButtonLabel(
+                                hasStartPoint =
+                                    hasStartPoint,
+                                hasEndPoint =
+                                    hasEndPoint
+                            )
+                        }
                     )
                 }
 
                 OutlinedButton(
                     onClick = onReset,
-                    enabled = hasAnyAnchor,
-                    colors = ButtonDefaults.outlinedButtonColors(
-                        contentColor = ErrorColor
-                    )
+                    enabled = canReset,
+                    colors =
+                        ButtonDefaults
+                            .outlinedButtonColors(
+                                contentColor = ErrorColor
+                            )
                 ) {
-                    Text("Limpar")
+                    Text(
+                        text = if (
+                            isAnchorPlacementInProgress
+                        ) {
+                            "Cancelar"
+                        } else {
+                            "Limpar"
+                        }
+                    )
                 }
             }
         }
@@ -284,18 +337,29 @@ private fun MeasurementResult(
     val locale = Locale.getDefault()
 
     Text(
-        text = measurement.formattedValueOnly(locale),
+        text = measurement.formattedValueOnly(
+            locale = locale
+        ),
         fontSize = 36.sp,
         fontWeight = FontWeight.Bold,
         fontFamily = FontFamily.Monospace,
         color = Color.White
     )
 
-    val uncertaintyText = if (measurement.meters < 1f) {
-        String.format(locale, "±%.1f cm", measurement.uncertaintyCentimeters)
-    } else {
-        String.format(locale, "±%.3f m", measurement.uncertaintyMeters)
-    }
+    val uncertaintyText =
+        if (measurement.meters < 1f) {
+            String.format(
+                locale,
+                "±%.1f cm",
+                measurement.uncertaintyCentimeters
+            )
+        } else {
+            String.format(
+                locale,
+                "±%.3f m",
+                measurement.uncertaintyMeters
+            )
+        }
 
     Text(
         text = uncertaintyText,
@@ -310,23 +374,35 @@ private fun MeasurementInstruction(
     trackingStatus: TrackingStatus,
     isTargetingSurface: Boolean,
     hasStartPoint: Boolean,
-    hasEndPoint: Boolean
+    hasEndPoint: Boolean,
+    isAnchorPlacementInProgress: Boolean
 ) {
     val instruction = when {
-        trackingStatus != TrackingStatus.TRACKING ->
-            trackingInstruction(trackingStatus)
+        isAnchorPlacementInProgress -> {
+            "Fixando o ponto no ambiente..."
+        }
 
-        !isTargetingSurface ->
+        trackingStatus != TrackingStatus.TRACKING -> {
+            trackingInstruction(
+                status = trackingStatus
+            )
+        }
+
+        !isTargetingSurface -> {
             "Aponte a mira para uma superfície detectada"
+        }
 
-        !hasStartPoint ->
+        !hasStartPoint -> {
             "Posicione a mira e fixe o ponto A"
+        }
 
-        !hasEndPoint ->
+        !hasEndPoint -> {
             "Posicione a mira e fixe o ponto B"
+        }
 
-        else ->
+        else -> {
             "Medição concluída"
+        }
     }
 
     Text(
@@ -449,9 +525,17 @@ private fun anchorButtonLabel(
     hasEndPoint: Boolean
 ): String {
     return when {
-        !hasStartPoint -> "Fixar ponto A"
-        !hasEndPoint -> "Fixar ponto B"
-        else -> "Medição concluída"
+        !hasStartPoint -> {
+            "Fixar ponto A"
+        }
+
+        !hasEndPoint -> {
+            "Fixar ponto B"
+        }
+
+        else -> {
+            "Medição concluída"
+        }
     }
 }
 
@@ -459,29 +543,37 @@ private fun trackingInstruction(
     status: TrackingStatus
 ): String {
     return when (status) {
-        TrackingStatus.INITIALIZING ->
+        TrackingStatus.INITIALIZING -> {
             "Inicializando o rastreamento"
+        }
 
-        TrackingStatus.EXCESSIVE_MOTION ->
+        TrackingStatus.EXCESSIVE_MOTION -> {
             "Movimente o aparelho mais devagar"
+        }
 
-        TrackingStatus.INSUFFICIENT_FEATURES ->
+        TrackingStatus.INSUFFICIENT_FEATURES -> {
             "Aponte para uma superfície com mais detalhes"
+        }
 
-        TrackingStatus.INSUFFICIENT_LIGHT ->
+        TrackingStatus.INSUFFICIENT_LIGHT -> {
             "Melhore a iluminação do ambiente"
+        }
 
-        TrackingStatus.CAMERA_UNAVAILABLE ->
+        TrackingStatus.CAMERA_UNAVAILABLE -> {
             "A câmera está indisponível"
+        }
 
-        TrackingStatus.PAUSED ->
+        TrackingStatus.PAUSED -> {
             "Rastreamento pausado"
+        }
 
-        TrackingStatus.UNAVAILABLE ->
+        TrackingStatus.UNAVAILABLE -> {
             "Rastreamento indisponível"
+        }
 
-        TrackingStatus.TRACKING ->
+        TrackingStatus.TRACKING -> {
             ""
+        }
     }
 }
 
@@ -490,12 +582,29 @@ private data class StatusPresentation(
     val label: String
 )
 
-private val PanelColor = Color(0xFF161B22)
-private val PrimaryTextColor = Color(0xFFC9D1D9)
-private val SecondaryTextColor = Color(0xFF8B949E)
-private val TelemetryColor = Color(0xFF58A6FF)
-private val SuccessColor = Color(0xFF238636)
-private val WarningColor = Color(0xFF9E6A03)
-private val ErrorColor = Color(0xFFDA3633)
-private val InactiveColor = Color(0xFF30363D)
-private val DepthActiveColor = Color(0xFF1F6FEB)
+private val PanelColor =
+    Color(0xFF161B22)
+
+private val PrimaryTextColor =
+    Color(0xFFC9D1D9)
+
+private val SecondaryTextColor =
+    Color(0xFF8B949E)
+
+private val TelemetryColor =
+    Color(0xFF58A6FF)
+
+private val SuccessColor =
+    Color(0xFF238636)
+
+private val WarningColor =
+    Color(0xFF9E6A03)
+
+private val ErrorColor =
+    Color(0xFFDA3633)
+
+private val InactiveColor =
+    Color(0xFF30363D)
+
+private val DepthActiveColor =
+    Color(0xFF1F6FEB)

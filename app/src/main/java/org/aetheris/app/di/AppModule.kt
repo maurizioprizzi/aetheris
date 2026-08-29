@@ -15,14 +15,19 @@ import org.koin.dsl.module
 
 val appModule = module {
 
-    // Gerenciamento da sessão ARCore.
+    /**
+     * Gerenciador do ciclo de vida da sessão ARCore.
+     */
     single {
         ArCoreSessionManager(
             context = androidContext()
         )
     }
 
-    // Processadores ARCore.
+    /**
+     * Processadores responsáveis pelos dados
+     * produzidos pelo ARCore.
+     */
     single {
         ArCoreFrameProcessor()
     }
@@ -31,25 +36,35 @@ val appModule = module {
         ArCoreHitTestProcessor()
     }
 
-    // Implementação concreta do repositório.
+    /**
+     * Implementação concreta do repositório espacial.
+     */
     single {
-        val sessionManager = get<ArCoreSessionManager>()
+        val sessionManager =
+            get<ArCoreSessionManager>()
 
         SpatialSensorRepositoryImpl(
-            frameProcessor = get<ArCoreFrameProcessor>(),
-            hitTestProcessor = get<ArCoreHitTestProcessor>(),
+            frameProcessor =
+                get<ArCoreFrameProcessor>(),
+            hitTestProcessor =
+                get<ArCoreHitTestProcessor>(),
             isDepthEnabledProvider = {
                 sessionManager.isDepthEnabled
             }
         )
     }
 
-    // A interface utiliza a mesma instância concreta.
+    /**
+     * Disponibiliza a mesma instância concreta
+     * por meio da interface do domínio.
+     */
     single<SpatialSensorRepository> {
         get<SpatialSensorRepositoryImpl>()
     }
 
-    // Casos de uso.
+    /**
+     * Casos de uso do domínio.
+     */
     factory {
         CalculateDistanceUseCase()
     }
@@ -62,12 +77,17 @@ val appModule = module {
         ProjectWorldToScreenUseCase()
     }
 
-    // ViewModel da tela de medição.
+    /**
+     * ViewModel da tela de medição.
+     */
     viewModel {
         MeasurementViewModel(
-            spatialSensorRepository = get<SpatialSensorRepository>(),
-            calculateDistanceUseCase = get<CalculateDistanceUseCase>(),
-            projectWorldToScreenUseCase = get<ProjectWorldToScreenUseCase>()
+            spatialSensorRepository =
+                get<SpatialSensorRepository>(),
+            calculateDistanceUseCase =
+                get<CalculateDistanceUseCase>(),
+            projectWorldToScreenUseCase =
+                get<ProjectWorldToScreenUseCase>()
         )
     }
 }

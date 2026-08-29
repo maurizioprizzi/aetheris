@@ -11,6 +11,7 @@ data class BoundingBox3D(
     val minPoint: Point3D,
     val maxPoint: Point3D
 ) {
+
     init {
         require(minPoint.hasFiniteCoordinates()) {
             "minPoint deve conter coordenadas finitas."
@@ -46,28 +47,35 @@ data class BoundingBox3D(
      * Volume em metros cúbicos (m³).
      */
     val volumeCubicMeters: Float
-        get() = widthMeters * heightMeters * depthMeters
+        get() =
+            widthMeters *
+                    heightMeters *
+                    depthMeters
 
     /**
-     * Volume em litros: 1 m³ = 1.000 L.
+     * Volume em litros.
+     *
+     * Um metro cúbico equivale a 1.000 litros.
      */
     val volumeLiters: Float
-        get() = volumeCubicMeters * LITERS_PER_CUBIC_METER
+        get() =
+            volumeCubicMeters *
+                    LITERS_PER_CUBIC_METER
 
+    /**
+     * Retorna o ponto central da caixa.
+     */
     fun center(): Point3D {
-        return Point3D(
-            x = minPoint.x + widthMeters / 2f,
-            y = minPoint.y + heightMeters / 2f,
-            z = minPoint.z + depthMeters / 2f
-        )
+        return minPoint.midpointTo(maxPoint)
     }
 
     companion object {
+
         private const val LITERS_PER_CUBIC_METER = 1_000f
 
         /**
          * Cria uma caixa delimitadora a partir de dois
-         * pontos extremos em qualquer ordem.
+         * pontos extremos fornecidos em qualquer ordem.
          */
         fun fromPoints(
             firstPoint: Point3D,
@@ -75,14 +83,32 @@ data class BoundingBox3D(
         ): BoundingBox3D {
             return BoundingBox3D(
                 minPoint = Point3D(
-                    x = min(firstPoint.x, secondPoint.x),
-                    y = min(firstPoint.y, secondPoint.y),
-                    z = min(firstPoint.z, secondPoint.z)
+                    x = min(
+                        firstPoint.x,
+                        secondPoint.x
+                    ),
+                    y = min(
+                        firstPoint.y,
+                        secondPoint.y
+                    ),
+                    z = min(
+                        firstPoint.z,
+                        secondPoint.z
+                    )
                 ),
                 maxPoint = Point3D(
-                    x = max(firstPoint.x, secondPoint.x),
-                    y = max(firstPoint.y, secondPoint.y),
-                    z = max(firstPoint.z, secondPoint.z)
+                    x = max(
+                        firstPoint.x,
+                        secondPoint.x
+                    ),
+                    y = max(
+                        firstPoint.y,
+                        secondPoint.y
+                    ),
+                    z = max(
+                        firstPoint.z,
+                        secondPoint.z
+                    )
                 )
             )
         }

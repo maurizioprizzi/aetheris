@@ -5,6 +5,7 @@ package org.aetheris.app.domain.model
  * apresentado ao domínio e à interface.
  */
 enum class TrackingStatus {
+
     /**
      * O ARCore ainda está inicializando o mapa de pontos
      * e estabelecendo o rastreamento inicial.

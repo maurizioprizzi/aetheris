@@ -1,7 +1,7 @@
 package org.aetheris.app.domain.math
 
 import org.aetheris.app.domain.model.Point3D
-import kotlin.math.sqrt
+import kotlin.math.hypot
 
 object SpatialLineMath {
 
@@ -24,9 +24,9 @@ object SpatialLineMath {
         end: Point3D
     ): Point3D {
         return Point3D(
-            x = (start.x + end.x) * 0.5f,
-            y = (start.y + end.y) * 0.5f,
-            z = (start.z + end.z) * 0.5f
+            x = average(start.x, end.x),
+            y = average(start.y, end.y),
+            z = average(start.z, end.z)
         )
     }
 
@@ -34,41 +34,46 @@ object SpatialLineMath {
         start: Point3D,
         end: Point3D
     ): Float {
-        val dx = end.x - start.x
-        val dy = end.y - start.y
-        val dz = end.z - start.z
-
-        return sqrt(
-            dx * dx +
-                    dy * dy +
-                    dz * dz
-        )
+        return start.distanceTo(end)
     }
 
     fun normalizedDirection(
         start: Point3D,
         end: Point3D
     ): Point3D? {
-        val dx = end.x - start.x
-        val dy = end.y - start.y
-        val dz = end.z - start.z
+        val dx = end.x.toDouble() - start.x.toDouble()
+        val dy = end.y.toDouble() - start.y.toDouble()
+        val dz = end.z.toDouble() - start.z.toDouble()
 
-        val magnitude = sqrt(
-            dx * dx +
-                    dy * dy +
-                    dz * dz
+        val magnitude = hypot(
+            hypot(dx, dy),
+            dz
         )
 
-        if (magnitude <= MINIMUM_MAGNITUDE) {
+        if (
+            !magnitude.isFinite() ||
+            magnitude <= MINIMUM_MAGNITUDE
+        ) {
             return null
         }
 
         return Point3D(
-            x = dx / magnitude,
-            y = dy / magnitude,
-            z = dz / magnitude
+            x = (dx / magnitude).toFloat(),
+            y = (dy / magnitude).toFloat(),
+            z = (dz / magnitude).toFloat()
         )
     }
 
-    private const val MINIMUM_MAGNITUDE = 1e-6f
+    private fun average(
+        first: Float,
+        second: Float
+    ): Float {
+        return (
+                (first.toDouble() + second.toDouble()) *
+                        MIDPOINT_FACTOR
+                ).toFloat()
+    }
+
+    private const val MINIMUM_MAGNITUDE = 1e-6
+    private const val MIDPOINT_FACTOR = 0.5
 }

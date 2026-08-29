@@ -54,9 +54,11 @@ fun FloatingMeasurementBadge(
                 visiblePosition != null
 
     /*
-     * Mantém os últimos valores válidos durante a animação de saída.
-     * Sem isso, o conteúdo desapareceria imediatamente quando os
-     * parâmetros fossem alterados para null.
+     * Mantém os últimos valores válidos durante
+     * a animação de saída.
+     *
+     * Sem essa retenção, o conteúdo desapareceria
+     * imediatamente quando os parâmetros virassem null.
      */
     var retainedMeasurement by remember {
         mutableStateOf<DistanceMeasurement?>(null)
@@ -71,8 +73,13 @@ fun FloatingMeasurementBadge(
         visiblePosition != null
     ) {
         SideEffect {
-            retainedMeasurement = visibleMeasurement
-            retainedPosition = visiblePosition
+            if (retainedMeasurement != visibleMeasurement) {
+                retainedMeasurement = visibleMeasurement
+            }
+
+            if (retainedPosition != visiblePosition) {
+                retainedPosition = visiblePosition
+            }
         }
     }
 
@@ -97,7 +104,9 @@ fun FloatingMeasurementBadge(
     Box(
         modifier = modifier
             .onSizeChanged { size ->
-                containerSize = size
+                if (containerSize != size) {
+                    containerSize = size
+                }
             },
         contentAlignment = Alignment.TopStart
     ) {
@@ -105,26 +114,34 @@ fun FloatingMeasurementBadge(
             visible = isVisible,
             enter = fadeIn(
                 animationSpec = tween(
-                    durationMillis = ENTER_DURATION_MILLIS
+                    durationMillis =
+                        ENTER_DURATION_MILLIS
                 )
             ),
             exit = fadeOut(
                 animationSpec = tween(
-                    durationMillis = EXIT_DURATION_MILLIS
+                    durationMillis =
+                        EXIT_DURATION_MILLIS
                 )
             ),
             modifier = Modifier.offset {
                 calculateBadgeOffset(
-                    screenPosition = displayedPosition,
-                    containerSize = containerSize,
-                    badgeSize = badgeSize,
-                    spacingPx = spacingPx
+                    screenPosition =
+                        displayedPosition,
+                    containerSize =
+                        containerSize,
+                    badgeSize =
+                        badgeSize,
+                    spacingPx =
+                        spacingPx
                 )
             }
         ) {
             if (displayedMeasurement != null) {
                 Text(
-                    text = displayedMeasurement.formattedMetric(),
+                    text =
+                        displayedMeasurement
+                            .formattedMetric(),
                     color = BadgePrimaryColor,
                     fontSize = 12.sp,
                     fontWeight = FontWeight.Bold,
@@ -132,10 +149,14 @@ fun FloatingMeasurementBadge(
                     maxLines = 1,
                     modifier = Modifier
                         .onSizeChanged { size ->
-                            badgeSize = size
+                            if (badgeSize != size) {
+                                badgeSize = size
+                            }
                         }
                         .clip(BadgeShape)
-                        .background(BadgeBackgroundColor)
+                        .background(
+                            BadgeBackgroundColor
+                        )
                         .border(
                             width = 1.dp,
                             color = BadgeBorderColor,
@@ -166,7 +187,8 @@ private fun calculateBadgeOffset(
     }
 
     val desiredX =
-        screenPosition.x - badgeSize.width / 2f
+        screenPosition.x -
+                badgeSize.width / 2f
 
     val positionAbove =
         screenPosition.y -
@@ -174,10 +196,12 @@ private fun calculateBadgeOffset(
                 spacingPx
 
     val positionBelow =
-        screenPosition.y + spacingPx
+        screenPosition.y +
+                spacingPx
 
     /*
-     * Coloca o badge acima do ponto. Se não houver espaço,
+     * Posiciona o indicador acima do ponto.
+     * Quando não existe espaço suficiente,
      * tenta posicioná-lo abaixo.
      */
     val desiredY =
@@ -198,10 +222,16 @@ private fun calculateBadgeOffset(
     return IntOffset(
         x = desiredX
             .roundToInt()
-            .coerceIn(0, maximumX),
+            .coerceIn(
+                minimumValue = 0,
+                maximumValue = maximumX
+            ),
         y = desiredY
             .roundToInt()
-            .coerceIn(0, maximumY)
+            .coerceIn(
+                minimumValue = 0,
+                maximumValue = maximumY
+            )
     )
 }
 

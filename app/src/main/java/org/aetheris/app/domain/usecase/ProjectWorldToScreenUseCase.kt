@@ -4,11 +4,12 @@ import org.aetheris.app.domain.model.Point3D
 import org.aetheris.app.domain.model.ScreenPoint2D
 
 /**
- * Projeta pontos do espaço mundial 3D para a tela 2D
+ * Projeta pontos do espaço mundial 3D para a tela 2D,
  * em coordenadas de pixels da viewport.
  *
- * A implementação é pura e não depende de android.opengl.Matrix,
- * mantendo o caso de uso independente do Android e testável na JVM.
+ * A implementação é pura e não depende de
+ * android.opengl.Matrix, mantendo o caso de uso
+ * independente do Android e testável na JVM.
  */
 class ProjectWorldToScreenUseCase {
 
@@ -29,14 +30,18 @@ class ProjectWorldToScreenUseCase {
             name = "projectionMatrix"
         )
 
-        if (viewportWidth <= 0 || viewportHeight <= 0) {
+        if (
+            viewportWidth <= 0 ||
+            viewportHeight <= 0
+        ) {
             return ScreenPoint2D.NOT_VISIBLE
         }
 
         /*
          * 1. Mundo -> espaço da câmera (Eye Space).
          *
-         * As matrizes OpenGL utilizam organização column-major.
+         * As matrizes OpenGL utilizam organização
+         * column-major.
          */
         val eyeX =
             viewMatrix[0] * point.x +
@@ -100,18 +105,18 @@ class ProjectWorldToScreenUseCase {
         }
 
         /*
-         * Um W não positivo indica que o ponto está atrás
-         * do plano da câmera.
+         * Um W não positivo indica que o ponto está
+         * atrás do plano da câmera.
          *
-         * Um valor positivo excessivamente pequeno causaria
-         * instabilidade numérica durante a divisão.
+         * Um valor positivo excessivamente pequeno
+         * causaria instabilidade durante a divisão.
          */
         if (clipW <= MINIMUM_CLIP_W) {
             return ScreenPoint2D.NOT_VISIBLE
         }
 
         /*
-         * 3. Verificação dos limites do frustum em Clip Space:
+         * 3. Verificação dos limites do frustum:
          *
          * -W <= X <= W
          * -W <= Y <= W
@@ -126,13 +131,16 @@ class ProjectWorldToScreenUseCase {
                     clipZ <= clipW
 
         /*
-         * 4. Divisão de perspectiva para Normalized
-         * Device Coordinates (NDC), no intervalo [-1, 1].
+         * 4. Divisão de perspectiva para
+         * Normalized Device Coordinates (NDC).
          */
         val ndcX = clipX / clipW
         val ndcY = clipY / clipW
 
-        if (!ndcX.isFinite() || !ndcY.isFinite()) {
+        if (
+            !ndcX.isFinite() ||
+            !ndcY.isFinite()
+        ) {
             return ScreenPoint2D.NOT_VISIBLE
         }
 
@@ -141,8 +149,9 @@ class ProjectWorldToScreenUseCase {
          *
          * NDC [-1, 1] -> pixels [0, dimensão - 1].
          *
-         * O eixo Y é invertido porque no OpenGL ele cresce
-         * para cima, enquanto na tela Android cresce para baixo.
+         * O eixo Y é invertido porque no OpenGL
+         * cresce para cima e na tela Android
+         * cresce para baixo.
          */
         val maximumX =
             (viewportWidth - 1)
@@ -165,10 +174,13 @@ class ProjectWorldToScreenUseCase {
                     maximumY
 
         /*
-         * Protege o modelo contra overflow durante a conversão
-         * de NDC para pixels.
+         * Evita a criação de coordenadas inválidas
+         * caso ocorra overflow na conversão.
          */
-        if (!screenX.isFinite() || !screenY.isFinite()) {
+        if (
+            !screenX.isFinite() ||
+            !screenY.isFinite()
+        ) {
             return ScreenPoint2D.NOT_VISIBLE
         }
 
@@ -193,8 +205,12 @@ class ProjectWorldToScreenUseCase {
         viewportWidth: Int,
         viewportHeight: Int
     ): ScreenPoint2D {
+        val midpoint = pointA.midpointTo(
+            other = pointB
+        )
+
         return invoke(
-            point = pointA.midpointTo(pointB),
+            point = midpoint,
             viewMatrix = viewMatrix,
             projectionMatrix = projectionMatrix,
             viewportWidth = viewportWidth,
@@ -206,12 +222,16 @@ class ProjectWorldToScreenUseCase {
         matrix: FloatArray,
         name: String
     ) {
-        require(matrix.size >= MATRIX_ELEMENT_COUNT) {
+        require(
+            matrix.size >= MATRIX_ELEMENT_COUNT
+        ) {
             "$name deve conter pelo menos " +
                     "$MATRIX_ELEMENT_COUNT valores."
         }
 
-        for (index in 0 until MATRIX_ELEMENT_COUNT) {
+        for (
+        index in 0 until MATRIX_ELEMENT_COUNT
+        ) {
             require(matrix[index].isFinite()) {
                 "$name deve conter apenas valores finitos. " +
                         "Elemento no índice $index é inválido."

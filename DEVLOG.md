@@ -4,6 +4,55 @@ Registro contínuo da engenharia, decisões arquiteturais (ADRs), modelagem mate
 
 ---
 
+## 🚀 [Dia 09] - 2026-08-29: Hardening do Pipeline ARCore, Segurança Numérica e Regressão Completa
+
+### 🎯 Objetivos Concluídos
+- [x] Migração definitiva do estado espacial legado para `SpatialFrameData`, com atualização do contrato `SpatialSensorRepository`, dos repositórios falsos e dos testes do `MeasurementViewModel`.
+- [x] Correção da suíte de testes do ARCore, incluindo os mocks de `Frame.camera`, `TrackingState`, `Point.orientationMode`, `Plane.isPoseInPolygon` e criação de âncoras.
+- [x] Adequação do ciclo de vida de `PointCloud` ao contrato `AutoCloseable`, garantindo `pointCloud.close()` por meio de `use`, inclusive quando a leitura do buffer falha.
+- [x] Estabilização do `SpatialSensorRepositoryImpl` com viewport atualizada atomicamente, conversão segura de coordenadas normalizadas para pixels e liberação defensiva de âncoras.
+- [x] Tratamento dos estados `TRACKING`, `PAUSED` e `STOPPED` das âncoras, preservando a última posição conhecida durante pausas temporárias e removendo âncoras encerradas.
+- [x] Reforço do `ArCoreHitTestProcessor` para validar câmera, coordenadas, planos, pontos orientados e `DepthPoint`, retornando `null` diante de indisponibilidade transitória do pipeline nativo.
+- [x] Reforço do `ArCoreFrameProcessor` com validação de confiança e coordenadas finitas, além de tratamento para `DeadlineExceededException`, `NotYetAvailableException` e `ResourceExhaustedException`.
+- [x] Refatoração dos modelos `Point3D`, `BoundingBox3D`, `DistanceMeasurement`, `MassEstimate`, `ScreenPoint2D`, `SpatialFrameData` e `TrackingStatus`.
+- [x] Adoção de cálculos intermediários em precisão `Double` para distância, normalização e ponto médio, reduzindo riscos de overflow e perda numérica.
+- [x] Consolidação de `ProjectWorldToScreenUseCase`, `CalculateDistanceUseCase`, `EstimateSpatialDimensionsUseCase` e `SpatialLineMath` sem dependências Android na camada de domínio.
+- [x] Hardening dos renderizadores `BackgroundRenderer` e `SpatialLineRenderer`, com validação de matrizes, prevenção de criação duplicada, limpeza de shaders e liberação segura de VAO, VBO, programas e texturas.
+- [x] Simplificação da inicialização do Koin: `AetherisApplication` mantém o contexto global e `MainActivity` utiliza a injeção automaticamente, aplicando `AetherisTheme`.
+- [x] Desativação intencional de `Config.DepthMode.AUTOMATIC` após o diagnóstico de falha nativa em `ComputeDisparity`, preservando planos, hit tests, âncoras e point cloud.
+- [x] Estabelecimento de uma baseline verde com **32/32 testes unitários aprovados** por `testDebugUnitTest`.
+
+### 🛠️ Desafios de Engenharia & Diagnóstico
+1. **Evolução incompatível do contrato espacial:**
+- *Causa:* Os testes ainda utilizavam `SpatialData`, enquanto a produção já expunha `StateFlow<SpatialFrameData>` e novos métodos de hit test e ancoragem.
+- *Solução:* Atualização dos doubles de teste, assinaturas e propriedades observadas, mantendo `normalizedX` e `normalizedY` compatíveis com a interface.
+2. **Mocks incompletos das classes ARCore:**
+- *Causa:* O processador passou a validar `frame.camera.trackingState` e `Point.orientationMode`, mas os mocks não forneciam esses comportamentos e geravam `MockKException`.
+- *Solução:* Modelagem explícita do estado da câmera e do modo `ESTIMATED_SURFACE_NORMAL`, preservando as validações usadas em produção.
+3. **Liberação incorreta de `PointCloud` nos testes:**
+- *Causa:* A implementação utiliza `use`, que encerra o recurso por `close()`, enquanto os testes verificavam a chamada antiga a `release()`.
+- *Solução:* Atualização dos testes para verificar exatamente uma chamada a `pointCloud.close()`, inclusive nos fluxos excepcionais.
+4. **Falha nativa da Depth API no dispositivo:**
+- *Causa:* Embora o aparelho anunciasse suporte a `DepthMode.AUTOMATIC`, o pipeline apresentava falha interna em `ComputeDisparity`.
+- *Solução:* Manutenção da detecção de suporte como telemetria e configuração efetiva de `DepthMode.DISABLED`, evitando instabilidade sem remover as funções centrais de medição.
+5. **Gerenciamento defensivo de recursos OpenGL e ARCore:**
+- *Causa:* Falhas durante compilação de shaders, vinculação de programas, criação de buffers ou encerramento de âncoras poderiam deixar recursos parcialmente inicializados.
+- *Solução:* Rotinas idempotentes de destruição, restauração de bindings em blocos `finally`, validação de handles e encapsulamento de `Anchor.detach()`.
+
+### 📊 Métricas de Validação
+- **Regressão inicial:** 18 falhas em 32 testes após a evolução dos contratos.
+- **Primeira estabilização:** redução para 13 falhas, concentradas nos mocks ARCore e no repositório.
+- **Segunda estabilização:** redução para 3 falhas, todas no `SpatialSensorRepositoryTest`.
+- **Resultado final registrado:** **32 testes executados, 0 falhas – BUILD SUCCESSFUL**.
+- **Comando de validação:** `./gradlew testDebugUnitTest --no-configuration-cache`.
+
+### 🏛️ Decisões de Arquitetura (ADR)
+- **ADR-014: Defensive ARCore/OpenGL Resource Management and Depth Fallback**
+  - **Contexto:** O pipeline combina objetos nativos de vida curta (`Frame`, `PointCloud`, `Anchor`), recursos de GPU dependentes do contexto EGL e funcionalidades opcionais que podem falhar mesmo quando declaradas como suportadas pelo hardware.
+  - **Decisão:** Tratar indisponibilidades transitórias nas bordas da camada `data`, garantir liberação determinística dos recursos, manter o domínio livre de dependências Android e permitir fallback explícito da Depth API sem interromper planos, hit tests e ancoragem.
+
+---
+
 ## 🚀 [Dia 08] - 2026-08-29: Projeção World-to-Screen, Badge Flutuante em Compose e Ancoragem Anti-Drift (ARCore Anchor)
 
 ### 🎯 Objetivos Concluídos
@@ -194,8 +243,9 @@ Registro contínuo da engenharia, decisões arquiteturais (ADRs), modelagem mate
 
 ---
 
-## 🔮 Próximos Passos (Dia 09)
-- [ ] Implementação de medição multi-ponto e sequenciamento de polilinhas 3D (`Polyline3D`).
-- [ ] Algoritmo de cálculo de área de superfícies coplanares poligonais (Fórmula de Shoelace 3D / Teorema de Stokes).
-- [ ] Renderização de malha poligonal translúcida com preenchimento via `GL_TRIANGLE_FAN` no OpenGL ES 3.0.
-- [ ] Exportação de telemetria espacial e relatórios metrológicos (JSON/CSV).
+## 🔮 Próximos Passos (Dia 10)
+- [ ] Implementação de medição multiponto e sequenciamento de polilinhas 3D (`Polyline3D`).
+- [ ] Cálculo da área de superfícies coplanares poligonais com projeção no plano dominante.
+- [ ] Renderização de malha poligonal translúcida com `GL_TRIANGLE_FAN` no OpenGL ES 3.0.
+- [ ] Exportação de telemetria espacial e relatórios metrológicos em JSON e CSV.
+- [ ] Execução final de `testDebugUnitTest`, `assembleDebug` e validação em dispositivo após o hardening.

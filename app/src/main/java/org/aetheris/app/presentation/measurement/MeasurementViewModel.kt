@@ -17,8 +17,12 @@ import org.aetheris.app.domain.usecase.ProjectWorldToScreenUseCase
 class MeasurementViewModel(
     private val spatialSensorRepository: SpatialSensorRepository,
     private val calculateDistanceUseCase: CalculateDistanceUseCase,
-    private val projectWorldToScreenUseCase: ProjectWorldToScreenUseCase
+    private val projectWorldToScreenUseCase:
+    ProjectWorldToScreenUseCase
 ) : ViewModel() {
+
+    private val concreteSpatialRepository =
+        spatialSensorRepository as? SpatialSensorRepositoryImpl
 
     private val _uiState =
         MutableStateFlow(MeasurementUiState())
@@ -33,7 +37,8 @@ class MeasurementViewModel(
     }
 
     /**
-     * Atualiza as dimensões da Viewport quando a superfície gráfica sofre redimensionamento.
+     * Atualiza as dimensões da viewport quando
+     * a superfície gráfica é redimensionada.
      */
     fun onSurfaceDimensionsChanged(
         widthPx: Int,
@@ -42,6 +47,15 @@ class MeasurementViewModel(
         if (widthPx <= 0 || heightPx <= 0) {
             return
         }
+
+        /*
+         * O repositório utiliza essas dimensões para converter
+         * coordenadas normalizadas em pixels da tela.
+         */
+        concreteSpatialRepository?.updateViewportSize(
+            widthPx = widthPx,
+            heightPx = heightPx
+        )
 
         _uiState.update { current ->
             if (
@@ -59,8 +73,11 @@ class MeasurementViewModel(
     }
 
     /**
-     * Atualiza a posição 2D do badge métrico a partir das matrizes mais recentes.
-     * Chamado na GL Thread com cópias defensivas das matrizes View e Projection.
+     * Atualiza a posição 2D do indicador métrico
+     * usando as matrizes mais recentes da câmera.
+     *
+     * É chamado na GL thread com cópias defensivas
+     * das matrizes View e Projection.
      */
     fun onCameraMatricesUpdated(
         viewMatrix: FloatArray,
@@ -81,8 +98,10 @@ class MeasurementViewModel(
                     pointB = endPoint,
                     viewMatrix = viewMatrix,
                     projectionMatrix = projectionMatrix,
-                    viewportWidth = state.viewportWidthPx,
-                    viewportHeight = state.viewportHeightPx
+                    viewportWidth =
+                        state.viewportWidthPx,
+                    viewportHeight =
+                        state.viewportHeightPx
                 )
             } else {
                 null
@@ -100,18 +119,21 @@ class MeasurementViewModel(
     }
 
     /**
-     * Processa o frame ARCore na GL Thread, repassando ao repositório para
-     * extração da nuvem de pontos e atualização das âncoras SLAM.
+     * Processa o frame atual do ARCore na GL thread.
+     *
+     * O frame é consumido sincronamente e não é
+     * armazenado na ViewModel.
      */
     fun processFrame(frame: Frame) {
-        (spatialSensorRepository as? SpatialSensorRepositoryImpl)?.onFrameUpdate(frame)
+        concreteSpatialRepository?.onFrameUpdate(frame)
     }
 
     /**
-     * Dispara o raycast na mira central e cria uma âncora SLAM no ponto de contato.
+     * Solicita a criação de uma âncora no centro da mira.
      */
     fun onAnchorPointTapped() {
         val state = _uiState.value
+
         val anchorSlot = state.nextAnchorSlot
             ?: return
 
@@ -132,8 +154,10 @@ class MeasurementViewModel(
         anchorPlacementJob = viewModelScope.launch {
             try {
                 spatialSensorRepository.createAnchor(
-                    normalizedX = CENTER_NORMALIZED_COORDINATE,
-                    normalizedY = CENTER_NORMALIZED_COORDINATE,
+                    normalizedX =
+                        CENTER_NORMALIZED_COORDINATE,
+                    normalizedY =
+                        CENTER_NORMALIZED_COORDINATE,
                     slot = anchorSlot
                 )
             } finally {
@@ -142,12 +166,14 @@ class MeasurementViewModel(
                         isAnchorPlacementInProgress = false
                     )
                 }
+
+                anchorPlacementJob = null
             }
         }
     }
 
     /**
-     * Reseta as âncoras e o estado de medição ativo.
+     * Remove as âncoras e limpa a medição atual.
      */
     fun onResetMeasurements() {
         anchorPlacementJob?.cancel()
@@ -179,15 +205,20 @@ class MeasurementViewModel(
                             spatialData.anchoredEndPoint
 
                         val anchorsChanged =
-                            startPoint != current.selectedStartPoint ||
-                                    endPoint != current.selectedEndPoint
+                            startPoint !=
+                                    current.selectedStartPoint ||
+                                    endPoint !=
+                                    current.selectedEndPoint
 
                         val measurement = when {
-                            startPoint == null || endPoint == null -> {
+                            startPoint == null ||
+                                    endPoint == null -> {
                                 null
                             }
 
-                            anchorsChanged || current.currentMeasurement == null -> {
+                            anchorsChanged ||
+                                    current.currentMeasurement ==
+                                    null -> {
                                 calculateDistanceUseCase(
                                     start = startPoint,
                                     end = endPoint
@@ -200,18 +231,26 @@ class MeasurementViewModel(
                         }
 
                         current.copy(
-                            trackingStatus = spatialData.trackingStatus,
-                            isDepthEnabled = spatialData.isDepthEnabled,
-                            detectedPointsCount = spatialData.pointCount,
-                            isTargetingSurface = spatialData.isSurfaceDetected,
-                            selectedStartPoint = startPoint,
-                            selectedEndPoint = endPoint,
-                            currentMeasurement = measurement,
-                            badgePosition = if (measurement == null) {
-                                null
-                            } else {
-                                current.badgePosition
-                            }
+                            trackingStatus =
+                                spatialData.trackingStatus,
+                            isDepthEnabled =
+                                spatialData.isDepthEnabled,
+                            detectedPointsCount =
+                                spatialData.pointCount,
+                            isTargetingSurface =
+                                spatialData.isSurfaceDetected,
+                            selectedStartPoint =
+                                startPoint,
+                            selectedEndPoint =
+                                endPoint,
+                            currentMeasurement =
+                                measurement,
+                            badgePosition =
+                                if (measurement == null) {
+                                    null
+                                } else {
+                                    current.badgePosition
+                                }
                         )
                     }
                 }

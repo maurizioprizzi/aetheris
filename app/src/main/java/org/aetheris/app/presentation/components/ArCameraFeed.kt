@@ -31,14 +31,16 @@ import javax.microedition.khronos.egl.EGLConfig
 import javax.microedition.khronos.opengles.GL10
 
 /**
- * Exibe o feed da câmera ARCore e renderiza a medição espacial.
+ * Exibe o feed da câmera do ARCore e renderiza
+ * a medição espacial.
  *
- * Diretrizes de Concorrência:
- * - onFrameAvailable é chamado na GL Thread.
- * - O Frame só pode ser consumido durante o escopo síncrono do callback.
- * - Não armazene o Frame na UI ou na ViewModel.
- * - onMatricesUpdated entrega cópias defensivas das matrizes.
- * - onError é despachado na Main Thread.
+ * Regras de concorrência:
+ *
+ * - onFrameAvailable é executado na GL thread;
+ * - o Frame deve ser consumido sincronamente;
+ * - o Frame não deve ser armazenado na UI ou na ViewModel;
+ * - onMatricesUpdated entrega cópias defensivas;
+ * - onError é enviado para a main thread.
  */
 @Composable
 fun ArCameraFeed(
@@ -60,8 +62,11 @@ fun ArCameraFeed(
     val lifecycleOwner = LocalLifecycleOwner.current
     val composeView = LocalView.current
 
-    val startPointState = rememberUpdatedState(startPoint)
-    val endPointState = rememberUpdatedState(endPoint)
+    val startPointState =
+        rememberUpdatedState(startPoint)
+
+    val endPointState =
+        rememberUpdatedState(endPoint)
 
     val surfaceChangedCallback =
         rememberUpdatedState(onSurfaceChanged)
@@ -91,15 +96,18 @@ fun ArCameraFeed(
         AtomicReference<GLSurfaceView?>(null)
     }
 
-    val displayRotation = composeView.display?.rotation
-        ?: Surface.ROTATION_0
+    val displayRotation =
+        composeView.display?.rotation
+            ?: Surface.ROTATION_0
 
     val displayRotationReference = remember {
         AtomicInteger(displayRotation)
     }
 
     SideEffect {
-        displayRotationReference.set(displayRotation)
+        displayRotationReference.set(
+            displayRotation
+        )
     }
 
     val glRenderer = remember(
@@ -134,8 +142,8 @@ fun ArCameraFeed(
             },
             onFrameAvailable = { frame ->
                 /*
-                 * Executado sincronamente na GL Thread para que
-                 * o Frame continue sendo o frame mais recente.
+                 * Executado sincronamente na GL thread.
+                 * O frame permanece válido durante o callback.
                  */
                 frameAvailableCallback.value(frame)
             },
@@ -156,19 +164,23 @@ fun ArCameraFeed(
         var destroyed = false
 
         fun resumeAr() {
-            if (destroyed) return
+            if (destroyed) {
+                return
+            }
 
-            val surfaceView = surfaceViewReference.get()
+            val surfaceView =
+                surfaceViewReference.get()
 
             sessionManager.resume()
                 .onSuccess {
                     /*
-                     * Invalida a vinculação anterior. A documentação
-                     * do ARCore não garante a validade da textura
-                     * depois de pause().
+                     * Invalida a associação anterior da textura.
+                     * Ela será refeita na GL thread antes do
+                     * próximo Session.update().
                      */
                     surfaceView?.queueEvent {
-                        glRenderer.onSessionResumedOnGlThread()
+                        glRenderer
+                            .onSessionResumedOnGlThread()
                     }
 
                     surfaceView?.onResume()
@@ -180,14 +192,20 @@ fun ArCameraFeed(
         }
 
         fun pauseAr() {
-            if (destroyed) return
+            if (destroyed) {
+                return
+            }
 
             /*
-             * A GL Thread deve parar antes de a sessão ser pausada,
-             * evitando Session.update() durante Session.pause().
+             * Interrompe a GL thread antes de pausar
+             * a sessão, evitando Session.update()
+             * durante Session.pause().
              */
             if (surfaceIsActive) {
-                surfaceViewReference.get()?.onPause()
+                surfaceViewReference
+                    .get()
+                    ?.onPause()
+
                 surfaceIsActive = false
             }
 
@@ -195,14 +213,18 @@ fun ArCameraFeed(
         }
 
         fun destroyAr() {
-            if (destroyed) return
+            if (destroyed) {
+                return
+            }
+
             destroyed = true
 
-            val surfaceView = surfaceViewReference.get()
+            val surfaceView =
+                surfaceViewReference.get()
 
             /*
-             * Se a thread ainda estiver ativa, libera os objetos
-             * OpenGL antes de pausar o GLSurfaceView.
+             * Libera os recursos OpenGL enquanto
+             * a GL thread ainda está disponível.
              */
             if (surfaceIsActive) {
                 surfaceView?.queueEvent {
@@ -216,25 +238,28 @@ fun ArCameraFeed(
             sessionManager.destroy()
         }
 
-        val observer = LifecycleEventObserver { _, event ->
-            when (event) {
-                Lifecycle.Event.ON_RESUME -> {
-                    resumeAr()
-                }
+        val observer =
+            LifecycleEventObserver { _, event ->
+                when (event) {
+                    Lifecycle.Event.ON_RESUME -> {
+                        resumeAr()
+                    }
 
-                Lifecycle.Event.ON_PAUSE -> {
-                    pauseAr()
-                }
+                    Lifecycle.Event.ON_PAUSE -> {
+                        pauseAr()
+                    }
 
-                Lifecycle.Event.ON_DESTROY -> {
-                    destroyAr()
-                }
+                    Lifecycle.Event.ON_DESTROY -> {
+                        destroyAr()
+                    }
 
-                else -> Unit
+                    else -> Unit
+                }
             }
-        }
 
-        lifecycleOwner.lifecycle.addObserver(observer)
+        lifecycleOwner.lifecycle.addObserver(
+            observer
+        )
 
         if (
             lifecycleOwner.lifecycle.currentState
@@ -242,12 +267,22 @@ fun ArCameraFeed(
         ) {
             resumeAr()
         } else {
-            surfaceViewReference.get()?.onPause()
+            surfaceViewReference
+                .get()
+                ?.onPause()
         }
 
         onDispose {
-            lifecycleOwner.lifecycle.removeObserver(observer)
+            lifecycleOwner.lifecycle.removeObserver(
+                observer
+            )
+
             destroyAr()
+
+            mainHandler.removeCallbacksAndMessages(
+                null
+            )
+
             surfaceViewReference.set(null)
         }
     }
@@ -256,16 +291,27 @@ fun ArCameraFeed(
         modifier = modifier.fillMaxSize(),
         factory = { context ->
             GLSurfaceView(context).apply {
-                setEGLContextClientVersion(3)
+                setEGLContextClientVersion(
+                    OPENGL_ES_VERSION
+                )
+
                 preserveEGLContextOnPause = true
+
                 setRenderer(glRenderer)
-                renderMode = GLSurfaceView.RENDERMODE_CONTINUOUSLY
+
+                renderMode =
+                    GLSurfaceView
+                        .RENDERMODE_CONTINUOUSLY
             }.also { surfaceView ->
-                surfaceViewReference.set(surfaceView)
+                surfaceViewReference.set(
+                    surfaceView
+                )
             }
         },
         update = { surfaceView ->
-            surfaceViewReference.set(surfaceView)
+            surfaceViewReference.set(
+                surfaceView
+            )
         }
     )
 }
@@ -289,12 +335,17 @@ private class ArCameraGlRenderer(
     private val onError: (Throwable) -> Unit
 ) : GLSurfaceView.Renderer {
 
-    private val viewMatrix = FloatArray(MATRIX_SIZE)
-    private val projectionMatrix = FloatArray(MATRIX_SIZE)
+    private val viewMatrix =
+        FloatArray(MATRIX_SIZE)
+
+    private val projectionMatrix =
+        FloatArray(MATRIX_SIZE)
 
     private var viewportWidth = 0
     private var viewportHeight = 0
-    private var lastDisplayRotation = INVALID_ROTATION
+
+    private var lastDisplayRotation =
+        INVALID_ROTATION
 
     private var configuredSession: Session? = null
     private var displayGeometryDirty = true
@@ -309,11 +360,23 @@ private class ArCameraGlRenderer(
         displayGeometryDirty = true
         renderingBlocked = false
         errorReported = false
+        lastDisplayRotation = INVALID_ROTATION
 
         try {
-            GLES30.glClearColor(0f, 0f, 0f, 1f)
-            GLES30.glEnable(GLES30.GL_DEPTH_TEST)
-            GLES30.glDepthFunc(GLES30.GL_LEQUAL)
+            GLES30.glClearColor(
+                0f,
+                0f,
+                0f,
+                1f
+            )
+
+            GLES30.glEnable(
+                GLES30.GL_DEPTH_TEST
+            )
+
+            GLES30.glDepthFunc(
+                GLES30.GL_LEQUAL
+            )
 
             backgroundRenderer.createOnGlThread()
             spatialLineRenderer.createOnGlThread()
@@ -343,10 +406,15 @@ private class ArCameraGlRenderer(
             height
         )
 
-        onSurfaceChanged(width, height)
+        onSurfaceChanged(
+            width,
+            height
+        )
     }
 
-    override fun onDrawFrame(gl: GL10?) {
+    override fun onDrawFrame(
+        gl: GL10?
+    ) {
         GLES30.glClear(
             GLES30.GL_COLOR_BUFFER_BIT or
                     GLES30.GL_DEPTH_BUFFER_BIT
@@ -356,19 +424,24 @@ private class ArCameraGlRenderer(
             return
         }
 
-        val session = sessionManager.session
-            ?: return
-
+        /*
+         * isRunning é @Volatile. Sua leitura ocorre antes
+         * do acesso à referência da sessão compartilhada.
+         */
         if (!sessionManager.isRunning) {
             return
         }
+
+        val session =
+            sessionManager.session
+                ?: return
 
         try {
             prepareSession(session)
 
             /*
-             * Session.update() é chamado antes de qualquer outra
-             * operação de renderização do frame.
+             * Session.update() precisa ocorrer antes
+             * dos consumidores do frame.
              */
             val frame = session.update()
 
@@ -393,8 +466,8 @@ private class ArCameraGlRenderer(
             )
 
             /*
-             * Entrega cópias porque os arrays internos são
-             * reutilizados no próximo frame.
+             * As matrizes internas são reutilizadas.
+             * Por isso, o callback recebe cópias.
              */
             onMatricesUpdated(
                 viewMatrix.copyOf(),
@@ -403,23 +476,29 @@ private class ArCameraGlRenderer(
 
             spatialLineRenderer.draw(
                 viewMatrix = viewMatrix,
-                projectionMatrix = projectionMatrix,
-                startPoint = startPointProvider(),
-                endPoint = endPointProvider()
+                projectionMatrix =
+                    projectionMatrix,
+                startPoint =
+                    startPointProvider(),
+                endPoint =
+                    endPointProvider()
             )
 
             /*
-             * Deve ser o último consumidor do Frame e precisa
-             * terminar antes do próximo Session.update().
+             * Deve ser o último consumidor do Frame
+             * e terminar antes do próximo update().
              */
             onFrameAvailable(frame)
 
             errorReported = false
         } catch (_: SessionPausedException) {
             /*
-             * Pode ocorrer durante a transição normal de lifecycle.
+             * Pode acontecer durante uma transição
+             * normal do ciclo de vida.
              */
-        } catch (error: CameraNotAvailableException) {
+        } catch (
+            error: CameraNotAvailableException
+        ) {
             configuredSession = null
             renderingBlocked = true
             reportErrorOnce(error)
@@ -430,17 +509,19 @@ private class ArCameraGlRenderer(
     }
 
     /**
-     * Deve ser chamado com queueEvent() depois de Session.resume().
+     * Deve ser chamado com queueEvent()
+     * depois de Session.resume().
      */
     fun onSessionResumedOnGlThread() {
         configuredSession = null
         displayGeometryDirty = true
         renderingBlocked = false
         errorReported = false
+        lastDisplayRotation = INVALID_ROTATION
     }
 
     /**
-     * Deve ser chamado na GL Thread.
+     * Deve ser chamado na GL thread.
      */
     fun releaseOnGlThread() {
         backgroundRenderer.destroyOnGlThread()
@@ -449,9 +530,13 @@ private class ArCameraGlRenderer(
         configuredSession = null
         displayGeometryDirty = true
         renderingBlocked = true
+        errorReported = false
+        lastDisplayRotation = INVALID_ROTATION
     }
 
-    private fun prepareSession(session: Session) {
+    private fun prepareSession(
+        session: Session
+    ) {
         if (configuredSession !== session) {
             session.setCameraTextureName(
                 backgroundRenderer.textureId
@@ -464,27 +549,32 @@ private class ArCameraGlRenderer(
         val displayRotation =
             displayRotationProvider()
 
-        if (
+        val geometryNeedsUpdate =
             displayGeometryDirty ||
-            displayRotation != lastDisplayRotation
-        ) {
-            if (
-                viewportWidth > 0 &&
-                viewportHeight > 0
-            ) {
-                session.setDisplayGeometry(
-                    displayRotation,
-                    viewportWidth,
-                    viewportHeight
-                )
+                    displayRotation !=
+                    lastDisplayRotation
 
-                lastDisplayRotation = displayRotation
-                displayGeometryDirty = false
-            }
+        if (
+            geometryNeedsUpdate &&
+            viewportWidth > 0 &&
+            viewportHeight > 0
+        ) {
+            session.setDisplayGeometry(
+                displayRotation,
+                viewportWidth,
+                viewportHeight
+            )
+
+            lastDisplayRotation =
+                displayRotation
+
+            displayGeometryDirty = false
         }
     }
 
-    private fun reportErrorOnce(error: Throwable) {
+    private fun reportErrorOnce(
+        error: Throwable
+    ) {
         if (errorReported) {
             return
         }
@@ -501,3 +591,5 @@ private class ArCameraGlRenderer(
         const val FAR_CLIP_METERS = 100f
     }
 }
+
+private const val OPENGL_ES_VERSION = 3

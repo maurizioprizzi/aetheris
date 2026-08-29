@@ -9,6 +9,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.ui.Modifier
 import org.aetheris.app.presentation.measurement.MeasurementScreen
+import org.aetheris.app.ui.theme.AetherisTheme
 
 class MainActivity : ComponentActivity() {
 
@@ -20,12 +21,13 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
 
         setContent {
-            MaterialTheme {
+            AetherisTheme {
                 Surface(
                     modifier = Modifier.fillMaxSize(),
-                    color = MaterialTheme
-                        .colorScheme
-                        .background
+                    color =
+                        MaterialTheme
+                            .colorScheme
+                            .background
                 ) {
                     MeasurementScreen()
                 }

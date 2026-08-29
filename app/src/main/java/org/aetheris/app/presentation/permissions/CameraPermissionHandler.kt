@@ -35,7 +35,6 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -67,7 +66,8 @@ fun CameraPermissionHandler(
     }
 
     /*
-     * Sobrevive a mudanças de configuração, como rotação da tela.
+     * Sobrevive a mudanças de configuração,
+     * como a rotação da tela.
      */
     var permissionWasRequested by rememberSaveable {
         mutableStateOf(false)
@@ -110,7 +110,8 @@ fun CameraPermissionHandler(
         }
 
     /*
-     * Revalida quando o usuário retorna da tela de Configurações.
+     * Revalida a permissão quando o usuário retorna
+     * da tela de configurações do aplicativo.
      */
     DisposableEffect(
         lifecycleOwner,
@@ -137,6 +138,7 @@ fun CameraPermissionHandler(
                 permissionDeniedPermanently,
             onRequestPermission = {
                 permissionWasRequested = true
+
                 permissionLauncher.launch(
                     CAMERA_PERMISSION
                 )
@@ -160,8 +162,12 @@ private fun CameraPermissionDeniedScreen(
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(PermissionBackgroundColor)
-            .windowInsetsPadding(WindowInsets.safeDrawing)
+            .background(
+                MaterialTheme.colorScheme.background
+            )
+            .windowInsetsPadding(
+                WindowInsets.safeDrawing
+            )
             .padding(24.dp),
         contentAlignment = Alignment.Center
     ) {
@@ -173,7 +179,7 @@ private fun CameraPermissionDeniedScreen(
         ) {
             Text(
                 text = "ACESSO À CÂMERA NECESSÁRIO",
-                color = PermissionErrorColor,
+                color = MaterialTheme.colorScheme.error,
                 fontFamily = FontFamily.Monospace,
                 fontWeight = FontWeight.Bold,
                 fontSize = 18.sp,
@@ -186,13 +192,16 @@ private fun CameraPermissionDeniedScreen(
                     isPermanentlyDenied =
                         isPermanentlyDenied
                 ),
-                color = PermissionSecondaryTextColor,
+                color =
+                    MaterialTheme.colorScheme.onBackground,
                 fontSize = 14.sp,
                 textAlign = TextAlign.Center,
                 lineHeight = 20.sp
             )
 
-            Spacer(modifier = Modifier.height(8.dp))
+            Spacer(
+                modifier = Modifier.height(8.dp)
+            )
 
             Button(
                 onClick = {
@@ -203,7 +212,10 @@ private fun CameraPermissionDeniedScreen(
                     }
                 },
                 colors = ButtonDefaults.buttonColors(
-                    containerColor = PermissionActionColor
+                    containerColor =
+                        MaterialTheme.colorScheme.primary,
+                    contentColor =
+                        MaterialTheme.colorScheme.onPrimary
                 ),
                 shape = MaterialTheme.shapes.small
             ) {
@@ -221,7 +233,9 @@ private fun CameraPermissionDeniedScreen(
                 OutlinedButton(
                     onClick = onPermissionDeclined
                 ) {
-                    Text("Agora não")
+                    Text(
+                        text = "Agora não"
+                    )
                 }
             }
         }
@@ -232,12 +246,13 @@ private fun permissionExplanation(
     isPermanentlyDenied: Boolean
 ): String {
     return if (isPermanentlyDenied) {
-        "A permissão da câmera foi desativada. Para usar a " +
-                "medição espacial, habilite a câmera nas configurações " +
-                "do aplicativo."
+        "A permissão da câmera foi desativada. " +
+                "Para usar a medição espacial, habilite " +
+                "a câmera nas configurações do aplicativo."
     } else {
-        "A câmera é necessária para mostrar o ambiente, detectar " +
-                "superfícies e posicionar os pontos da medição."
+        "A câmera é necessária para mostrar o ambiente, " +
+                "detectar superfícies e posicionar os " +
+                "pontos da medição."
     }
 }
 
@@ -256,7 +271,13 @@ private fun Context.openApplicationSettings() {
             packageName,
             null
         )
-    )
+    ).apply {
+        if (findActivity() == null) {
+            addFlags(
+                Intent.FLAG_ACTIVITY_NEW_TASK
+            )
+        }
+    }
 
     startActivity(intent)
 }
@@ -271,15 +292,3 @@ private tailrec fun Context.findActivity(): Activity? {
         else -> null
     }
 }
-
-private val PermissionBackgroundColor =
-    Color(0xFF0D1117)
-
-private val PermissionErrorColor =
-    Color(0xFFFF5252)
-
-private val PermissionSecondaryTextColor =
-    Color(0xFF8B949E)
-
-private val PermissionActionColor =
-    Color(0xFF238636)

@@ -27,28 +27,26 @@ class SpatialSensorRepositoryImpl(
     private val _spatialDataStream =
         MutableStateFlow(SpatialFrameData())
 
+    override val spatialDataStream: StateFlow<SpatialFrameData> =
+        _spatialDataStream.asStateFlow()
+
     private val anchorLock = Any()
 
     @Volatile
     private var currentFrame: Frame? = null
 
     @Volatile
-    private var viewportWidthPx: Int = 0
-
-    @Volatile
-    private var viewportHeightPx: Int = 0
+    private var viewportSize: ViewportSize? = null
 
     private var startAnchor: Anchor? = null
     private var endAnchor: Anchor? = null
 
-    override val spatialDataStream: StateFlow<SpatialFrameData> =
-        _spatialDataStream.asStateFlow()
-
     /**
-     * Atualiza as dimensões usadas para converter coordenadas
-     * normalizadas em pixels.
+     * Atualiza as dimensões utilizadas para converter
+     * coordenadas normalizadas em pixels.
      *
-     * Deve ser chamado a partir de onSurfaceChanged().
+     * Deve ser chamado quando a superfície gráfica
+     * for criada ou redimensionada.
      */
     fun updateViewportSize(
         widthPx: Int,
@@ -62,20 +60,28 @@ class SpatialSensorRepositoryImpl(
             "A altura da viewport deve ser maior que zero."
         }
 
-        viewportWidthPx = widthPx
-        viewportHeightPx = heightPx
+        viewportSize = ViewportSize(
+            widthPx = widthPx,
+            heightPx = heightPx
+        )
     }
 
     /**
-     * Atualiza o estado espacial a partir do frame ARCore mais recente.
-     * Deve ser chamado a cada quadro na thread de renderização OpenGL.
+     * Atualiza o estado espacial utilizando o frame
+     * mais recente do ARCore.
+     *
+     * Deve ser chamado a cada quadro na thread
+     * responsável pela renderização.
      */
     fun onFrameUpdate(frame: Frame) {
         currentFrame = frame
 
         val camera = frame.camera
-        val trackingStatus = camera.toDomainTrackingStatus()
-        val isTracking = camera.trackingState == TrackingState.TRACKING
+        val trackingStatus =
+            camera.toDomainTrackingStatus()
+
+        val isTracking =
+            camera.trackingState == TrackingState.TRACKING
 
         val points = if (isTracking) {
             frameProcessor.processPointCloud(frame)
@@ -83,27 +89,42 @@ class SpatialSensorRepositoryImpl(
             emptyList()
         }
 
-        val centerPixels = normalizedToPixels(0.5f, 0.5f)
-        val isSurfaceDetected = if (isTracking && centerPixels != null) {
-            hitTestProcessor.hasValidSurfaceAt(
-                frame = frame,
-                xPx = centerPixels.x,
-                yPx = centerPixels.y
-            )
-        } else {
-            false
-        }
+        val centerPixels = normalizedToPixels(
+            normalizedX = CENTER_NORMALIZED_COORDINATE,
+            normalizedY = CENTER_NORMALIZED_COORDINATE
+        )
+
+        val isSurfaceDetected =
+            if (isTracking && centerPixels != null) {
+                hitTestProcessor.hasValidSurfaceAt(
+                    frame = frame,
+                    xPx = centerPixels.x,
+                    yPx = centerPixels.y
+                )
+            } else {
+                false
+            }
 
         val anchorSnapshot = resolveAnchors()
 
         _spatialDataStream.update { current ->
             current.copy(
                 trackingStatus = trackingStatus,
-                isDepthEnabled = isDepthEnabledProvider(),
+                isDepthEnabled =
+                    isDepthEnabledProvider(),
                 pointCount = points.size,
-                isSurfaceDetected = isSurfaceDetected,
-                anchoredStartPoint = anchorSnapshot.start.resolve(current.anchoredStartPoint),
-                anchoredEndPoint = anchorSnapshot.end.resolve(current.anchoredEndPoint)
+                isSurfaceDetected =
+                    isSurfaceDetected,
+                anchoredStartPoint =
+                    anchorSnapshot.start.resolve(
+                        previousPoint =
+                            current.anchoredStartPoint
+                    ),
+                anchoredEndPoint =
+                    anchorSnapshot.end.resolve(
+                        previousPoint =
+                            current.anchoredEndPoint
+                    )
             )
         }
     }
@@ -112,8 +133,8 @@ class SpatialSensorRepositoryImpl(
         normalizedX: Float,
         normalizedY: Float
     ): Point3D? {
-        val frame = currentTrackingFrame()
-            ?: return null
+        val frame =
+            currentTrackingFrame() ?: return null
 
         val pixelCoordinates = normalizedToPixels(
             normalizedX = normalizedX,
@@ -132,21 +153,27 @@ class SpatialSensorRepositoryImpl(
         normalizedY: Float,
         slot: AnchorSlot
     ): Point3D? {
-        val frame = currentTrackingFrame()
-            ?: return null
+        val frame =
+            currentTrackingFrame() ?: return null
 
         val pixelCoordinates = normalizedToPixels(
             normalizedX = normalizedX,
             normalizedY = normalizedY
         ) ?: return null
 
-        val newAnchor = hitTestProcessor.createAnchorAt(
-            frame = frame,
-            xPx = pixelCoordinates.x,
-            yPx = pixelCoordinates.y
-        ) ?: return null
+        val newAnchor =
+            hitTestProcessor.createAnchorAt(
+                frame = frame,
+                xPx = pixelCoordinates.x,
+                yPx = pixelCoordinates.y
+            ) ?: return null
 
-        val point = newAnchor.pose.toPoint3D()
+        val point = try {
+            newAnchor.pose.toPoint3D()
+        } catch (_: RuntimeException) {
+            newAnchor.safeDetach()
+            return null
+        }
 
         replaceAnchor(
             slot = slot,
@@ -173,20 +200,21 @@ class SpatialSensorRepositoryImpl(
     }
 
     override fun clearAnchors() {
-        val anchorsToDetach = synchronized(anchorLock) {
-            val anchors = listOfNotNull(
-                startAnchor,
-                endAnchor
-            )
+        val anchorsToDetach =
+            synchronized(anchorLock) {
+                val anchors = listOfNotNull(
+                    startAnchor,
+                    endAnchor
+                )
 
-            startAnchor = null
-            endAnchor = null
+                startAnchor = null
+                endAnchor = null
 
-            anchors
-        }
+                anchors
+            }
 
         anchorsToDetach.forEach { anchor ->
-            anchor.detach()
+            anchor.safeDetach()
         }
 
         _spatialDataStream.update { current ->
@@ -198,18 +226,21 @@ class SpatialSensorRepositoryImpl(
     }
 
     /**
-     * Deve ser chamado antes de destruir a sessão ARCore.
+     * Libera os recursos mantidos pelo repositório.
+     *
+     * Deve ser chamado antes de destruir
+     * a sessão do ARCore.
      */
     fun release() {
         clearAnchors()
 
         currentFrame = null
-        viewportWidthPx = 0
-        viewportHeightPx = 0
+        viewportSize = null
 
         _spatialDataStream.update { current ->
             current.copy(
-                trackingStatus = TrackingStatus.UNAVAILABLE,
+                trackingStatus =
+                    TrackingStatus.UNAVAILABLE,
                 isDepthEnabled = false,
                 pointCount = 0,
                 isSurfaceDetected = false
@@ -221,52 +252,64 @@ class SpatialSensorRepositoryImpl(
         slot: AnchorSlot,
         newAnchor: Anchor
     ) {
-        val previousAnchor = synchronized(anchorLock) {
-            when (slot) {
-                AnchorSlot.START -> {
-                    val previous = startAnchor
-                    startAnchor = newAnchor
-                    previous
-                }
+        val previousAnchor =
+            synchronized(anchorLock) {
+                when (slot) {
+                    AnchorSlot.START -> {
+                        val previous = startAnchor
+                        startAnchor = newAnchor
+                        previous
+                    }
 
-                AnchorSlot.END -> {
-                    val previous = endAnchor
-                    endAnchor = newAnchor
-                    previous
+                    AnchorSlot.END -> {
+                        val previous = endAnchor
+                        endAnchor = newAnchor
+                        previous
+                    }
                 }
             }
-        }
 
         if (previousAnchor !== newAnchor) {
-            previousAnchor?.detach()
+            previousAnchor?.safeDetach()
         }
     }
 
     private fun resolveAnchors(): AnchorSnapshot {
-        val anchorsToDetach = mutableListOf<Anchor>()
+        val anchorsToDetach =
+            mutableListOf<Anchor>()
 
-        val snapshot = synchronized(anchorLock) {
-            val resolvedStart = resolveAnchor(startAnchor)
-            val resolvedEnd = resolveAnchor(endAnchor)
+        val snapshot =
+            synchronized(anchorLock) {
+                val resolvedStart =
+                    resolveAnchor(startAnchor)
 
-            if (resolvedStart.removeAnchor) {
-                startAnchor?.let(anchorsToDetach::add)
-                startAnchor = null
+                val resolvedEnd =
+                    resolveAnchor(endAnchor)
+
+                if (resolvedStart.removeAnchor) {
+                    startAnchor?.let(
+                        anchorsToDetach::add
+                    )
+
+                    startAnchor = null
+                }
+
+                if (resolvedEnd.removeAnchor) {
+                    endAnchor?.let(
+                        anchorsToDetach::add
+                    )
+
+                    endAnchor = null
+                }
+
+                AnchorSnapshot(
+                    start = resolvedStart,
+                    end = resolvedEnd
+                )
             }
-
-            if (resolvedEnd.removeAnchor) {
-                endAnchor?.let(anchorsToDetach::add)
-                endAnchor = null
-            }
-
-            AnchorSnapshot(
-                start = resolvedStart,
-                end = resolvedEnd
-            )
-        }
 
         anchorsToDetach.forEach { anchor ->
-            anchor.detach()
+            anchor.safeDetach()
         }
 
         return snapshot
@@ -279,45 +322,60 @@ class SpatialSensorRepositoryImpl(
             return ResolvedAnchor.empty()
         }
 
-        return when (anchor.trackingState) {
-            TrackingState.TRACKING -> {
-                ResolvedAnchor(
-                    point = anchor.pose.toPoint3D(),
-                    keepPreviousPoint = false,
-                    removeAnchor = false
-                )
-            }
+        return try {
+            when (anchor.trackingState) {
+                TrackingState.TRACKING -> {
+                    ResolvedAnchor(
+                        point =
+                            anchor.pose.toPoint3D(),
+                        keepPreviousPoint = false,
+                        removeAnchor = false
+                    )
+                }
 
-            TrackingState.PAUSED -> {
-                /*
-                 * Mantém a última posição conhecida enquanto
-                 * o ARCore tenta recuperar o rastreamento.
-                 */
-                ResolvedAnchor(
-                    point = null,
-                    keepPreviousPoint = true,
-                    removeAnchor = false
-                )
-            }
+                TrackingState.PAUSED -> {
+                    /*
+                     * Mantém a última posição conhecida enquanto
+                     * o ARCore tenta recuperar o rastreamento.
+                     */
+                    ResolvedAnchor(
+                        point = null,
+                        keepPreviousPoint = true,
+                        removeAnchor = false
+                    )
+                }
 
-            TrackingState.STOPPED -> {
-                /*
-                 * Uma âncora STOPPED não voltará a rastrear.
-                 */
-                ResolvedAnchor(
-                    point = null,
-                    keepPreviousPoint = false,
-                    removeAnchor = true
-                )
+                TrackingState.STOPPED -> {
+                    /*
+                     * Uma âncora parada não voltará
+                     * a ser rastreada.
+                     */
+                    ResolvedAnchor(
+                        point = null,
+                        keepPreviousPoint = false,
+                        removeAnchor = true
+                    )
+                }
             }
+        } catch (_: RuntimeException) {
+            ResolvedAnchor(
+                point = null,
+                keepPreviousPoint = false,
+                removeAnchor = true
+            )
         }
     }
 
     private fun currentTrackingFrame(): Frame? {
         val frame = currentFrame ?: return null
 
-        return frame.takeIf {
-            it.camera.trackingState == TrackingState.TRACKING
+        return try {
+            frame.takeIf {
+                it.camera.trackingState ==
+                        TrackingState.TRACKING
+            }
+        } catch (_: RuntimeException) {
+            null
         }
     }
 
@@ -339,24 +397,25 @@ class SpatialSensorRepositoryImpl(
             return null
         }
 
-        val width = viewportWidthPx
-        val height = viewportHeightPx
+        val currentViewport =
+            viewportSize ?: return null
 
-        if (width <= 0 || height <= 0) {
-            return null
-        }
+        val maximumX =
+            (currentViewport.widthPx - 1)
+                .coerceAtLeast(0)
 
-        /*
-         * width - 1 e height - 1 evitam produzir uma coordenada
-         * fora da View quando o valor normalizado for exatamente 1.
-         */
+        val maximumY =
+            (currentViewport.heightPx - 1)
+                .coerceAtLeast(0)
+
         return PixelCoordinates(
-            x = normalizedX * (width - 1).coerceAtLeast(0),
-            y = normalizedY * (height - 1).coerceAtLeast(0)
+            x = normalizedX * maximumX,
+            y = normalizedY * maximumY
         )
     }
 
-    private fun Camera.toDomainTrackingStatus(): TrackingStatus {
+    private fun Camera.toDomainTrackingStatus():
+            TrackingStatus {
         return when (trackingState) {
             TrackingState.TRACKING -> {
                 TrackingStatus.TRACKING
@@ -367,7 +426,8 @@ class SpatialSensorRepositoryImpl(
             }
 
             TrackingState.PAUSED -> {
-                trackingFailureReason.toDomainTrackingStatus()
+                trackingFailureReason
+                    .toDomainTrackingStatus()
             }
         }
     }
@@ -417,6 +477,17 @@ class SpatialSensorRepositoryImpl(
         )
     }
 
+    private fun Anchor.safeDetach() {
+        try {
+            detach()
+        } catch (_: RuntimeException) {
+            /*
+             * A âncora pode já ter sido liberada
+             * pela sessão do ARCore.
+             */
+        }
+    }
+
     private fun ResolvedAnchor.resolve(
         previousPoint: Point3D?
     ): Point3D? {
@@ -426,6 +497,11 @@ class SpatialSensorRepositoryImpl(
             point
         }
     }
+
+    private data class ViewportSize(
+        val widthPx: Int,
+        val heightPx: Int
+    )
 
     private data class PixelCoordinates(
         val x: Float,
@@ -442,7 +518,9 @@ class SpatialSensorRepositoryImpl(
         val keepPreviousPoint: Boolean,
         val removeAnchor: Boolean
     ) {
+
         companion object {
+
             fun empty(): ResolvedAnchor {
                 return ResolvedAnchor(
                     point = null,
@@ -454,6 +532,8 @@ class SpatialSensorRepositoryImpl(
     }
 
     private companion object {
+        const val CENTER_NORMALIZED_COORDINATE = 0.5f
+
         val NORMALIZED_RANGE = 0f..1f
     }
 }

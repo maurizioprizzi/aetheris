@@ -22,6 +22,7 @@ class CalculateDistanceUseCase(
     private val minimumConfidence: Float =
         DEFAULT_MINIMUM_CONFIDENCE
 ) {
+
     init {
         require(
             baseUncertaintyMeters.isFinite() &&
@@ -34,7 +35,7 @@ class CalculateDistanceUseCase(
             referenceDistanceMeters.isFinite() &&
                     referenceDistanceMeters > 0f
         ) {
-            "A distância de referência deve ser maior que zero."
+            "A distância de referência deve ser finita e maior que zero."
         }
 
         require(
@@ -52,7 +53,7 @@ class CalculateDistanceUseCase(
     ): DistanceMeasurement {
         require(
             confidenceScore.isFinite() &&
-                    confidenceScore > 0f &&
+                    confidenceScore > MINIMUM_EXCLUSIVE_CONFIDENCE &&
                     confidenceScore <= MAXIMUM_CONFIDENCE
         ) {
             "O nível de confiança deve estar entre " +
@@ -76,8 +77,11 @@ class CalculateDistanceUseCase(
                     distanceFactor /
                     effectiveConfidence
 
-        require(estimatedUncertaintyMeters.isFinite()) {
-            "Não foi possível calcular uma incerteza finita."
+        require(
+            estimatedUncertaintyMeters.isFinite() &&
+                    estimatedUncertaintyMeters >= 0f
+        ) {
+            "Não foi possível calcular uma incerteza válida."
         }
 
         return DistanceMeasurement(
@@ -90,8 +94,11 @@ class CalculateDistanceUseCase(
         const val DEFAULT_BASE_UNCERTAINTY_METERS = 0.015f
         const val DEFAULT_REFERENCE_DISTANCE_METERS = 2f
         const val DEFAULT_MINIMUM_CONFIDENCE = 0.1f
+
+        const val MINIMUM_EXCLUSIVE_CONFIDENCE = 0f
         const val MAXIMUM_CONFIDENCE = 1f
 
-        val VALID_CONFIDENCE_RANGE = 0f..1f
+        val VALID_CONFIDENCE_RANGE =
+            MINIMUM_EXCLUSIVE_CONFIDENCE..MAXIMUM_CONFIDENCE
     }
 }

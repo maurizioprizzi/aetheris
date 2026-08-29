@@ -4,16 +4,16 @@ import org.aetheris.app.domain.model.BoundingBox3D
 import org.aetheris.app.domain.model.Point3D
 
 /**
- * Calcula uma caixa delimitadora alinhada aos eixos (AABB)
- * a partir de pontos no espaço tridimensional.
+ * Calcula uma caixa delimitadora alinhada aos eixos
+ * (AABB) a partir de pontos no espaço tridimensional.
  */
 class EstimateSpatialDimensionsUseCase {
 
     /**
      * Calcula a AABB que envolve todos os pontos válidos.
      *
-     * @throws IllegalArgumentException quando a coleção não contém
-     * nenhum ponto válido.
+     * @throws IllegalArgumentException quando a coleção
+     * não contém nenhum ponto válido.
      */
     operator fun invoke(
         points: Iterable<Point3D>
@@ -21,7 +21,8 @@ class EstimateSpatialDimensionsUseCase {
         return requireNotNull(
             BoundingBox3D.fromPointCloud(points)
         ) {
-            "A nuvem de pontos deve conter pelo menos um ponto válido."
+            "A nuvem de pontos deve conter pelo menos " +
+                    "um ponto válido."
         }
     }
 
@@ -41,10 +42,15 @@ class EstimateSpatialDimensionsUseCase {
     /**
      * Sobrecarga de conveniência para uma quantidade
      * variável de pontos.
+     *
+     * @throws IllegalArgumentException quando nenhum
+     * ponto for fornecido.
      */
     operator fun invoke(
         vararg points: Point3D
     ): BoundingBox3D {
-        return invoke(points.asIterable())
+        return invoke(
+            points = points.asIterable()
+        )
     }
 }

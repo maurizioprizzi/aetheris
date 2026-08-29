@@ -7,7 +7,7 @@ import org.aetheris.app.domain.model.ScreenPoint2D
 import org.aetheris.app.domain.model.TrackingStatus
 
 /**
- * Estado visual da tela de medição espacial.
+ * Estado visual imutável da tela de medição espacial.
  */
 data class MeasurementUiState(
     val trackingStatus: TrackingStatus =
@@ -47,9 +47,17 @@ data class MeasurementUiState(
         }
     }
 
+    /**
+     * Indica que o ARCore está rastreando
+     * normalmente o ambiente.
+     */
     val isTracking: Boolean
-        get() = trackingStatus == TrackingStatus.TRACKING
+        get() = trackingStatus.allowsAnchorPlacement
 
+    /**
+     * Indica que a superfície gráfica possui
+     * dimensões válidas para projeção.
+     */
     val hasValidViewport: Boolean
         get() = viewportWidthPx > 0 &&
                 viewportHeightPx > 0
@@ -61,13 +69,33 @@ data class MeasurementUiState(
         get() = selectedEndPoint != null
 
     val anchorCount: Int
-        get() = (if (hasStartPoint) 1 else 0) + (if (hasEndPoint) 1 else 0)
+        get() {
+            var count = 0
 
+            if (hasStartPoint) {
+                count++
+            }
+
+            if (hasEndPoint) {
+                count++
+            }
+
+            return count
+        }
+
+    /**
+     * Indica que os dois pontos e a distância
+     * calculada estão disponíveis.
+     */
     val hasCompleteMeasurement: Boolean
         get() = hasStartPoint &&
                 hasEndPoint &&
                 currentMeasurement != null
 
+    /**
+     * Define qual âncora deve ser posicionada
+     * na próxima interação.
+     */
     val nextAnchorSlot: AnchorSlot?
         get() = when {
             !hasStartPoint -> AnchorSlot.START
@@ -75,6 +103,10 @@ data class MeasurementUiState(
             else -> null
         }
 
+    /**
+     * Indica que todas as condições necessárias
+     * para posicionar uma âncora foram atendidas.
+     */
     val canPlaceAnchor: Boolean
         get() = isTracking &&
                 isTargetingSurface &&
@@ -86,6 +118,10 @@ data class MeasurementUiState(
                 hasEndPoint ||
                 currentMeasurement != null
 
+    /**
+     * O indicador de distância só deve aparecer
+     * quando sua posição projetada estiver visível.
+     */
     val shouldShowBadge: Boolean
         get() = currentMeasurement != null &&
                 badgePosition?.isVisible == true

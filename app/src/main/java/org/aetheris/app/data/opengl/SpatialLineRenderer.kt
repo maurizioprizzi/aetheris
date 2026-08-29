@@ -8,8 +8,8 @@ import java.nio.ByteOrder
 import java.nio.FloatBuffer
 
 /**
- * Renderiza pontos de ancoragem e uma linha entre duas posições
- * expressas no sistema de coordenadas do mundo ARCore.
+ * Renderiza pontos de ancoragem e uma linha entre
+ * duas posições no sistema de coordenadas do ARCore.
  *
  * Todos os métodos devem ser chamados na thread OpenGL.
  */
@@ -18,71 +18,116 @@ class SpatialLineRenderer(
     private val requestedAnchorSizePx: Float = 20f,
     private val requestedSingleAnchorSizePx: Float = 24f
 ) {
+
     init {
-        require(requestedLineWidthPx.isFinite() && requestedLineWidthPx > 0f)
-        require(requestedAnchorSizePx.isFinite() && requestedAnchorSizePx > 0f)
+        require(
+            requestedLineWidthPx.isFinite() &&
+                    requestedLineWidthPx > 0f
+        ) {
+            "A largura da linha deve ser finita e maior que zero."
+        }
+
+        require(
+            requestedAnchorSizePx.isFinite() &&
+                    requestedAnchorSizePx > 0f
+        ) {
+            "O tamanho da âncora deve ser finito e maior que zero."
+        }
+
         require(
             requestedSingleAnchorSizePx.isFinite() &&
                     requestedSingleAnchorSizePx > 0f
-        )
+        ) {
+            "O tamanho da âncora isolada deve ser finito e maior que zero."
+        }
     }
 
     private var programId = 0
     private var vertexArrayId = 0
     private var vertexBufferId = 0
 
-    private var mvpMatrixUniform = -1
-    private var colorUniform = -1
-    private var pointSizeUniform = -1
-    private var roundPointUniform = -1
+    private var mvpMatrixUniform = INVALID_LOCATION
+    private var colorUniform = INVALID_LOCATION
+    private var pointSizeUniform = INVALID_LOCATION
+    private var roundPointUniform = INVALID_LOCATION
 
-    private var supportedLineWidth = 1f
-    private var supportedAnchorSize = requestedAnchorSizePx
-    private var supportedSingleAnchorSize = requestedSingleAnchorSizePx
+    private var supportedLineWidth = DEFAULT_LINE_WIDTH
+    private var supportedAnchorSize =
+        requestedAnchorSizePx
+
+    private var supportedSingleAnchorSize =
+        requestedSingleAnchorSizePx
 
     /*
-     * Os Point3D recebidos já estão no espaço do mundo ARCore.
-     * Portanto, MVP = Projection x View, sem uma Model matrix adicional.
+     * Os pontos recebidos já estão no espaço mundial
+     * do ARCore. Portanto:
+     *
+     * MVP = Projection × View
      */
-    private val mvpMatrix = FloatArray(MATRIX_SIZE)
+    private val mvpMatrix =
+        FloatArray(MATRIX_SIZE)
 
-    private val vertexArray = FloatArray(MAX_VERTEX_FLOAT_COUNT)
+    private val vertexArray =
+        FloatArray(MAX_VERTEX_FLOAT_COUNT)
 
-    private val vertexBuffer: FloatBuffer = ByteBuffer
-        .allocateDirect(MAX_VERTEX_FLOAT_COUNT * FLOAT_SIZE_BYTES)
-        .order(ByteOrder.nativeOrder())
-        .asFloatBuffer()
-
-    fun createOnGlThread() {
-        resetHandles()
-
-        val vertexShader = compileShader(
-            GLES30.GL_VERTEX_SHADER,
-            VERTEX_SHADER_SOURCE
-        )
-
-        val fragmentShader = try {
-            compileShader(
-                GLES30.GL_FRAGMENT_SHADER,
-                FRAGMENT_SHADER_SOURCE
+    private val vertexBuffer: FloatBuffer =
+        ByteBuffer
+            .allocateDirect(
+                MAX_VERTEX_FLOAT_COUNT *
+                        FLOAT_SIZE_BYTES
             )
-        } catch (exception: RuntimeException) {
-            GLES30.glDeleteShader(vertexShader)
-            throw exception
+            .order(ByteOrder.nativeOrder())
+            .asFloatBuffer()
+
+    /**
+     * Cria o programa, VAO e VBO utilizados pelo renderer.
+     */
+    fun createOnGlThread() {
+        check(!isCreated()) {
+            "SpatialLineRenderer já foi criado."
         }
 
-        programId = linkProgram(
-            vertexShader = vertexShader,
-            fragmentShader = fragmentShader
-        )
+        resetHandles()
 
-        resolveUniformLocations()
-        createGeometryBuffers()
-        querySupportedSizes()
+        try {
+            val vertexShader = compileShader(
+                type = GLES30.GL_VERTEX_SHADER,
+                source = VERTEX_SHADER_SOURCE
+            )
 
-        checkGlError("Criação do SpatialLineRenderer")
+            val fragmentShader = try {
+                compileShader(
+                    type = GLES30.GL_FRAGMENT_SHADER,
+                    source = FRAGMENT_SHADER_SOURCE
+                )
+            } catch (exception: RuntimeException) {
+                GLES30.glDeleteShader(vertexShader)
+                throw exception
+            }
+
+            programId = linkProgram(
+                vertexShader = vertexShader,
+                fragmentShader = fragmentShader
+            )
+
+            resolveUniformLocations()
+            createGeometryBuffers()
+            querySupportedSizes()
+
+            checkGlError(
+                operation =
+                    "Criação do SpatialLineRenderer"
+            )
+        } catch (exception: RuntimeException) {
+            destroyOnGlThread()
+            throw exception
+        }
     }
 
+    /**
+     * Desenha uma âncora isolada ou duas âncoras
+     * conectadas por uma linha.
+     */
     fun draw(
         viewMatrix: FloatArray,
         projectionMatrix: FloatArray,
@@ -93,16 +138,22 @@ class SpatialLineRenderer(
             "SpatialLineRenderer ainda não foi criado na thread OpenGL."
         }
 
-        require(viewMatrix.size >= MATRIX_SIZE) {
-            "viewMatrix deve conter pelo menos 16 valores."
-        }
+        requireValidMatrix(
+            matrix = viewMatrix,
+            name = "viewMatrix"
+        )
 
-        require(projectionMatrix.size >= MATRIX_SIZE) {
-            "projectionMatrix deve conter pelo menos 16 valores."
-        }
+        requireValidMatrix(
+            matrix = projectionMatrix,
+            name = "projectionMatrix"
+        )
 
-        val firstPoint = startPoint ?: endPoint ?: return
-        val hasLine = startPoint != null && endPoint != null
+        val firstPoint =
+            startPoint ?: endPoint ?: return
+
+        val hasLine =
+            startPoint != null &&
+                    endPoint != null
 
         val vertexCount = if (hasLine) {
             fillLineVertices(
@@ -110,10 +161,14 @@ class SpatialLineRenderer(
                 endPoint = requireNotNull(endPoint)
             )
         } else {
-            fillSinglePointVertex(firstPoint)
+            fillSinglePointVertex(
+                point = firstPoint
+            )
         }
 
-        uploadVertices(vertexCount)
+        uploadVertices(
+            vertexCount = vertexCount
+        )
 
         Matrix.multiplyMM(
             mvpMatrix,
@@ -126,50 +181,80 @@ class SpatialLineRenderer(
 
         GLES30.glUseProgram(programId)
 
-        GLES30.glUniformMatrix4fv(
-            mvpMatrixUniform,
-            1,
-            false,
-            mvpMatrix,
-            0
-        )
-
-        GLES30.glEnable(GLES30.GL_DEPTH_TEST)
-        GLES30.glDepthFunc(GLES30.GL_LEQUAL)
-        GLES30.glDepthMask(true)
-
-        GLES30.glBindVertexArray(vertexArrayId)
-
-        if (hasLine) {
-            drawLine()
-            drawAnchors(
-                vertexCount = 2,
-                pointSize = supportedAnchorSize
+        try {
+            GLES30.glUniformMatrix4fv(
+                mvpMatrixUniform,
+                1,
+                false,
+                mvpMatrix,
+                0
             )
-        } else {
-            drawAnchors(
-                vertexCount = 1,
-                pointSize = supportedSingleAnchorSize
+
+            GLES30.glEnable(
+                GLES30.GL_DEPTH_TEST
             )
+
+            GLES30.glDepthFunc(
+                GLES30.GL_LEQUAL
+            )
+
+            GLES30.glDepthMask(true)
+
+            GLES30.glBindVertexArray(
+                vertexArrayId
+            )
+
+            if (hasLine) {
+                drawLine()
+
+                drawAnchors(
+                    vertexCount = LINE_VERTEX_COUNT,
+                    pointSize = supportedAnchorSize
+                )
+            } else {
+                drawAnchors(
+                    vertexCount =
+                        SINGLE_POINT_VERTEX_COUNT,
+                    pointSize =
+                        supportedSingleAnchorSize
+                )
+            }
+        } finally {
+            GLES30.glBindVertexArray(0)
+            GLES30.glUseProgram(0)
         }
 
-        GLES30.glBindVertexArray(0)
-        GLES30.glUseProgram(0)
-
-        checkGlError("Renderização da linha espacial")
+        checkGlError(
+            operation =
+                "Renderização da linha espacial"
+        )
     }
 
+    /**
+     * Libera todos os recursos pertencentes
+     * ao contexto OpenGL.
+     */
     fun destroyOnGlThread() {
-        val tempHandle = IntArray(1)
+        val handle = IntArray(1)
 
         if (vertexBufferId != 0) {
-            tempHandle[0] = vertexBufferId
-            GLES30.glDeleteBuffers(1, tempHandle, 0)
+            handle[0] = vertexBufferId
+
+            GLES30.glDeleteBuffers(
+                1,
+                handle,
+                0
+            )
         }
 
         if (vertexArrayId != 0) {
-            tempHandle[0] = vertexArrayId
-            GLES30.glDeleteVertexArrays(1, tempHandle, 0)
+            handle[0] = vertexArrayId
+
+            GLES30.glDeleteVertexArrays(
+                1,
+                handle,
+                0
+            )
         }
 
         if (programId != 0) {
@@ -180,7 +265,9 @@ class SpatialLineRenderer(
     }
 
     private fun drawLine() {
-        GLES30.glLineWidth(supportedLineWidth)
+        GLES30.glLineWidth(
+            supportedLineWidth
+        )
 
         GLES30.glUniform4fv(
             colorUniform,
@@ -190,15 +277,18 @@ class SpatialLineRenderer(
         )
 
         /*
-         * Desativa o recorte circular, pois gl_PointCoord só possui
-         * significado durante a renderização de GL_POINTS.
+         * Desativa o recorte circular porque
+         * gl_PointCoord somente é válido para GL_POINTS.
          */
-        GLES30.glUniform1i(roundPointUniform, 0)
+        GLES30.glUniform1i(
+            roundPointUniform,
+            BOOLEAN_FALSE
+        )
 
         GLES30.glDrawArrays(
             GLES30.GL_LINES,
             0,
-            2
+            LINE_VERTEX_COUNT
         )
     }
 
@@ -218,7 +308,10 @@ class SpatialLineRenderer(
             pointSize
         )
 
-        GLES30.glUniform1i(roundPointUniform, 1)
+        GLES30.glUniform1i(
+            roundPointUniform,
+            BOOLEAN_TRUE
+        )
 
         GLES30.glDrawArrays(
             GLES30.GL_POINTS,
@@ -234,7 +327,7 @@ class SpatialLineRenderer(
         vertexArray[1] = point.y
         vertexArray[2] = point.z
 
-        return 1
+        return SINGLE_POINT_VERTEX_COUNT
     }
 
     private fun fillLineVertices(
@@ -249,14 +342,22 @@ class SpatialLineRenderer(
         vertexArray[4] = endPoint.y
         vertexArray[5] = endPoint.z
 
-        return 2
+        return LINE_VERTEX_COUNT
     }
 
-    private fun uploadVertices(vertexCount: Int) {
-        val floatCount = vertexCount * COORDINATES_PER_VERTEX
+    private fun uploadVertices(
+        vertexCount: Int
+    ) {
+        val floatCount =
+            vertexCount *
+                    COORDINATES_PER_VERTEX
 
         vertexBuffer.clear()
-        vertexBuffer.put(vertexArray, 0, floatCount)
+        vertexBuffer.put(
+            vertexArray,
+            0,
+            floatCount
+        )
         vertexBuffer.flip()
 
         GLES30.glBindBuffer(
@@ -264,22 +365,30 @@ class SpatialLineRenderer(
             vertexBufferId
         )
 
-        GLES30.glBufferSubData(
-            GLES30.GL_ARRAY_BUFFER,
-            0,
-            floatCount * FLOAT_SIZE_BYTES,
-            vertexBuffer
-        )
-
-        GLES30.glBindBuffer(
-            GLES30.GL_ARRAY_BUFFER,
-            0
-        )
+        try {
+            GLES30.glBufferSubData(
+                GLES30.GL_ARRAY_BUFFER,
+                0,
+                floatCount * FLOAT_SIZE_BYTES,
+                vertexBuffer
+            )
+        } finally {
+            GLES30.glBindBuffer(
+                GLES30.GL_ARRAY_BUFFER,
+                0
+            )
+        }
     }
 
     private fun createGeometryBuffers() {
         val vertexArrays = IntArray(1)
-        GLES30.glGenVertexArrays(1, vertexArrays, 0)
+
+        GLES30.glGenVertexArrays(
+            1,
+            vertexArrays,
+            0
+        )
+
         vertexArrayId = vertexArrays[0]
 
         check(vertexArrayId != 0) {
@@ -287,46 +396,57 @@ class SpatialLineRenderer(
         }
 
         val buffers = IntArray(1)
-        GLES30.glGenBuffers(1, buffers, 0)
+
+        GLES30.glGenBuffers(
+            1,
+            buffers,
+            0
+        )
+
         vertexBufferId = buffers[0]
 
         check(vertexBufferId != 0) {
             "Não foi possível criar o VBO da linha espacial."
         }
 
-        GLES30.glBindVertexArray(vertexArrayId)
-
-        GLES30.glBindBuffer(
-            GLES30.GL_ARRAY_BUFFER,
-            vertexBufferId
+        GLES30.glBindVertexArray(
+            vertexArrayId
         )
 
-        GLES30.glBufferData(
-            GLES30.GL_ARRAY_BUFFER,
-            MAX_VERTEX_FLOAT_COUNT * FLOAT_SIZE_BYTES,
-            null,
-            GLES30.GL_DYNAMIC_DRAW
-        )
+        try {
+            GLES30.glBindBuffer(
+                GLES30.GL_ARRAY_BUFFER,
+                vertexBufferId
+            )
 
-        GLES30.glEnableVertexAttribArray(
-            POSITION_ATTRIBUTE_LOCATION
-        )
+            GLES30.glBufferData(
+                GLES30.GL_ARRAY_BUFFER,
+                MAX_VERTEX_FLOAT_COUNT *
+                        FLOAT_SIZE_BYTES,
+                null,
+                GLES30.GL_DYNAMIC_DRAW
+            )
 
-        GLES30.glVertexAttribPointer(
-            POSITION_ATTRIBUTE_LOCATION,
-            COORDINATES_PER_VERTEX,
-            GLES30.GL_FLOAT,
-            false,
-            0,
-            0
-        )
+            GLES30.glEnableVertexAttribArray(
+                POSITION_ATTRIBUTE_LOCATION
+            )
 
-        GLES30.glBindBuffer(
-            GLES30.GL_ARRAY_BUFFER,
-            0
-        )
+            GLES30.glVertexAttribPointer(
+                POSITION_ATTRIBUTE_LOCATION,
+                COORDINATES_PER_VERTEX,
+                GLES30.GL_FLOAT,
+                false,
+                VERTEX_STRIDE_BYTES,
+                0
+            )
+        } finally {
+            GLES30.glBindBuffer(
+                GLES30.GL_ARRAY_BUFFER,
+                0
+            )
 
-        GLES30.glBindVertexArray(0)
+            GLES30.glBindVertexArray(0)
+        }
     }
 
     private fun querySupportedSizes() {
@@ -338,10 +458,14 @@ class SpatialLineRenderer(
             0
         )
 
-        supportedLineWidth = requestedLineWidthPx.coerceIn(
-            lineWidthRange[0],
-            lineWidthRange[1]
-        )
+        supportedLineWidth =
+            clampToSupportedRange(
+                requestedValue =
+                    requestedLineWidthPx,
+                range = lineWidthRange,
+                fallbackValue =
+                    DEFAULT_LINE_WIDTH
+            )
 
         val pointSizeRange = FloatArray(2)
 
@@ -351,30 +475,72 @@ class SpatialLineRenderer(
             0
         )
 
-        supportedAnchorSize = requestedAnchorSizePx.coerceIn(
-            pointSizeRange[0],
-            pointSizeRange[1]
-        )
+        supportedAnchorSize =
+            clampToSupportedRange(
+                requestedValue =
+                    requestedAnchorSizePx,
+                range = pointSizeRange,
+                fallbackValue =
+                    requestedAnchorSizePx
+            )
 
         supportedSingleAnchorSize =
-            requestedSingleAnchorSizePx.coerceIn(
-                pointSizeRange[0],
-                pointSizeRange[1]
+            clampToSupportedRange(
+                requestedValue =
+                    requestedSingleAnchorSizePx,
+                range = pointSizeRange,
+                fallbackValue =
+                    requestedSingleAnchorSizePx
             )
     }
 
-    private fun resolveUniformLocations() {
-        mvpMatrixUniform = requireUniform("u_MvpMatrix")
-        colorUniform = requireUniform("u_Color")
-        pointSizeUniform = requireUniform("u_PointSize")
-        roundPointUniform = requireUniform("u_RoundPoint")
+    private fun clampToSupportedRange(
+        requestedValue: Float,
+        range: FloatArray,
+        fallbackValue: Float
+    ): Float {
+        val minimum = range.getOrNull(0)
+        val maximum = range.getOrNull(1)
+
+        if (
+            minimum == null ||
+            maximum == null ||
+            !minimum.isFinite() ||
+            !maximum.isFinite() ||
+            minimum <= 0f ||
+            maximum < minimum
+        ) {
+            return fallbackValue
+        }
+
+        return requestedValue.coerceIn(
+            minimumValue = minimum,
+            maximumValue = maximum
+        )
     }
 
-    private fun requireUniform(name: String): Int {
-        val location = GLES30.glGetUniformLocation(
-            programId,
-            name
-        )
+    private fun resolveUniformLocations() {
+        mvpMatrixUniform =
+            requireUniform("u_MvpMatrix")
+
+        colorUniform =
+            requireUniform("u_Color")
+
+        pointSizeUniform =
+            requireUniform("u_PointSize")
+
+        roundPointUniform =
+            requireUniform("u_RoundPoint")
+    }
+
+    private fun requireUniform(
+        name: String
+    ): Int {
+        val location =
+            GLES30.glGetUniformLocation(
+                programId,
+                name
+            )
 
         check(location >= 0) {
             "Uniform '$name' não encontrado no programa OpenGL."
@@ -387,16 +553,22 @@ class SpatialLineRenderer(
         type: Int,
         source: String
     ): Int {
-        val shader = GLES30.glCreateShader(type)
+        val shader =
+            GLES30.glCreateShader(type)
 
         check(shader != 0) {
             "Não foi possível criar o shader OpenGL."
         }
 
-        GLES30.glShaderSource(shader, source)
+        GLES30.glShaderSource(
+            shader,
+            source
+        )
+
         GLES30.glCompileShader(shader)
 
-        val compilationStatus = IntArray(1)
+        val compilationStatus =
+            IntArray(1)
 
         GLES30.glGetShaderiv(
             shader,
@@ -405,12 +577,18 @@ class SpatialLineRenderer(
             0
         )
 
-        if (compilationStatus[0] == GLES30.GL_FALSE) {
-            val log = GLES30.glGetShaderInfoLog(shader)
+        if (
+            compilationStatus[0] ==
+            GLES30.GL_FALSE
+        ) {
+            val log =
+                GLES30.glGetShaderInfoLog(shader)
 
             GLES30.glDeleteShader(shader)
 
-            error("Falha ao compilar shader: $log")
+            error(
+                "Falha ao compilar shader: $log"
+            )
         }
 
         return shader
@@ -420,17 +598,33 @@ class SpatialLineRenderer(
         vertexShader: Int,
         fragmentShader: Int
     ): Int {
-        val newProgram = GLES30.glCreateProgram()
+        val newProgram =
+            GLES30.glCreateProgram()
 
         if (newProgram == 0) {
-            GLES30.glDeleteShader(vertexShader)
-            GLES30.glDeleteShader(fragmentShader)
+            GLES30.glDeleteShader(
+                vertexShader
+            )
 
-            error("Não foi possível criar o programa OpenGL.")
+            GLES30.glDeleteShader(
+                fragmentShader
+            )
+
+            error(
+                "Não foi possível criar o programa OpenGL."
+            )
         }
 
-        GLES30.glAttachShader(newProgram, vertexShader)
-        GLES30.glAttachShader(newProgram, fragmentShader)
+        GLES30.glAttachShader(
+            newProgram,
+            vertexShader
+        )
+
+        GLES30.glAttachShader(
+            newProgram,
+            fragmentShader
+        )
+
         GLES30.glLinkProgram(newProgram)
 
         val linkStatus = IntArray(1)
@@ -442,38 +636,81 @@ class SpatialLineRenderer(
             0
         )
 
-        val programLog = if (
-            linkStatus[0] == GLES30.GL_FALSE
-        ) {
-            GLES30.glGetProgramInfoLog(newProgram)
-        } else {
-            null
-        }
+        val programLog =
+            if (
+                linkStatus[0] ==
+                GLES30.GL_FALSE
+            ) {
+                GLES30.glGetProgramInfoLog(
+                    newProgram
+                )
+            } else {
+                null
+            }
 
-        GLES30.glDetachShader(newProgram, vertexShader)
-        GLES30.glDetachShader(newProgram, fragmentShader)
+        GLES30.glDetachShader(
+            newProgram,
+            vertexShader
+        )
+
+        GLES30.glDetachShader(
+            newProgram,
+            fragmentShader
+        )
+
         GLES30.glDeleteShader(vertexShader)
         GLES30.glDeleteShader(fragmentShader)
 
         if (programLog != null) {
-            GLES30.glDeleteProgram(newProgram)
-            error("Falha ao vincular programa OpenGL: $programLog")
+            GLES30.glDeleteProgram(
+                newProgram
+            )
+
+            error(
+                "Falha ao vincular programa OpenGL: $programLog"
+            )
         }
 
         return newProgram
     }
 
-    private fun checkGlError(operation: String) {
-        val errors = mutableListOf<String>()
-        var errorCode = GLES30.glGetError()
+    private fun requireValidMatrix(
+        matrix: FloatArray,
+        name: String
+    ) {
+        require(matrix.size >= MATRIX_SIZE) {
+            "$name deve conter pelo menos 16 valores."
+        }
 
-        while (errorCode != GLES30.GL_NO_ERROR) {
-            errors += "0x${errorCode.toString(16)}"
-            errorCode = GLES30.glGetError()
+        for (index in 0 until MATRIX_SIZE) {
+            require(matrix[index].isFinite()) {
+                "$name contém um valor inválido no índice $index."
+            }
+        }
+    }
+
+    private fun checkGlError(
+        operation: String
+    ) {
+        val errors =
+            mutableListOf<String>()
+
+        var errorCode =
+            GLES30.glGetError()
+
+        while (
+            errorCode != GLES30.GL_NO_ERROR
+        ) {
+            errors +=
+                "0x${errorCode.toString(16)}"
+
+            errorCode =
+                GLES30.glGetError()
         }
 
         check(errors.isEmpty()) {
-            "$operation gerou erro OpenGL: ${errors.joinToString()}"
+            "$operation gerou erro OpenGL: " +
+                    errors.joinToString()
         }
     }
 
@@ -488,14 +725,19 @@ class SpatialLineRenderer(
         vertexArrayId = 0
         vertexBufferId = 0
 
-        mvpMatrixUniform = -1
-        colorUniform = -1
-        pointSizeUniform = -1
-        roundPointUniform = -1
+        mvpMatrixUniform = INVALID_LOCATION
+        colorUniform = INVALID_LOCATION
+        pointSizeUniform = INVALID_LOCATION
+        roundPointUniform = INVALID_LOCATION
 
-        supportedLineWidth = 1f
-        supportedAnchorSize = requestedAnchorSizePx
-        supportedSingleAnchorSize = requestedSingleAnchorSizePx
+        supportedLineWidth =
+            DEFAULT_LINE_WIDTH
+
+        supportedAnchorSize =
+            requestedAnchorSizePx
+
+        supportedSingleAnchorSize =
+            requestedSingleAnchorSizePx
     }
 
     private companion object {
@@ -505,9 +747,20 @@ class SpatialLineRenderer(
         const val MAX_VERTEX_COUNT = 2
 
         const val MAX_VERTEX_FLOAT_COUNT =
-            MAX_VERTEX_COUNT * COORDINATES_PER_VERTEX
+            MAX_VERTEX_COUNT *
+                    COORDINATES_PER_VERTEX
+
+        const val SINGLE_POINT_VERTEX_COUNT = 1
+        const val LINE_VERTEX_COUNT = 2
 
         const val POSITION_ATTRIBUTE_LOCATION = 0
+        const val VERTEX_STRIDE_BYTES = 0
+
+        const val INVALID_LOCATION = -1
+        const val DEFAULT_LINE_WIDTH = 1f
+
+        const val BOOLEAN_FALSE = 0
+        const val BOOLEAN_TRUE = 1
 
         val LINE_COLOR = floatArrayOf(
             0.345f,
@@ -532,7 +785,10 @@ class SpatialLineRenderer(
             uniform float u_PointSize;
 
             void main() {
-                gl_Position = u_MvpMatrix * vec4(a_Position, 1.0);
+                gl_Position =
+                    u_MvpMatrix *
+                    vec4(a_Position, 1.0);
+
                 gl_PointSize = u_PointSize;
             }
         """.trimIndent()
@@ -549,9 +805,16 @@ class SpatialLineRenderer(
 
             void main() {
                 if (u_RoundPoint == 1) {
-                    vec2 centeredCoordinate = gl_PointCoord - vec2(0.5);
+                    vec2 centeredCoordinate =
+                        gl_PointCoord - vec2(0.5);
 
-                    if (dot(centeredCoordinate, centeredCoordinate) > 0.25) {
+                    float squaredDistance =
+                        dot(
+                            centeredCoordinate,
+                            centeredCoordinate
+                        );
+
+                    if (squaredDistance > 0.25) {
                         discard;
                     }
                 }
