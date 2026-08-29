@@ -1,10 +1,11 @@
-# 🛰️ Aetheris
+# 🌌 Aetheris
 
 [![Android CI](https://github.com/maurizioprizzi/aetheris/actions/workflows/android.yml/badge.svg)](https://github.com/maurizioprizzi/aetheris/actions/workflows/android.yml)
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
 [![Kotlin](https://img.shields.io/badge/Kotlin-2.0.20-purple.svg)](https://kotlinlang.org)
-[![ARCore](https://img.shields.io/badge/ARCore-1.42.0-blue.svg)](https://developers.google.com/ar)
+[![ARCore](https://img.shields.io/badge/ARCore-1.46.0-blue.svg)](https://developers.google.com/ar)
 [![OpenGL ES](https://img.shields.io/badge/OpenGL_ES-3.0-orange.svg)](https://developer.android.com/guide/topics/graphics/opengl)
+[![Android 15 Ready](https://img.shields.io/badge/16_KB_Page_Size-Aligned-brightgreen.svg)](https://developer.android.com/16kb-page-size)
 [![Min SDK](https://img.shields.io/badge/Min_SDK-26-green.svg)](https://developer.android.com)
 
 **Aetheris** is an open-source citizen science and spatial metrology platform for Android. By combining low-level optical hardware streams (ARCore & OpenGL ES 3.0), real-time sensor filtering, and deterministic physical inference models, Aetheris transforms commercial smartphones into scientific-grade spatial measurement instruments.
@@ -23,19 +24,20 @@
 
 ---
 
-## 🏛️ Architecture & Tech Stack
+## 🏗️ Architecture & Tech Stack
 
 The system strictly adheres to **Clean Architecture** and **Unidirectional Data Flow (UDF)**:
 
 - **Pure JVM Domain:** Core mathematical models, metric calculations, and uncertainty propagation completely isolated from Android SDK dependencies.
-- **Hardware & Graphics Pipeline:** Low-level ARCore 1.42.0 lifecycle management, OpenGL ES 3.0 (`GLSurfaceView` with `rememberUpdatedState`), and reactive telemetry streams via `StateFlow`.
+- **Hardware & Graphics Pipeline:** Low-level ARCore 1.46.0 lifecycle management, OpenGL ES 3.0 (`GLSurfaceView` with `rememberUpdatedState`), and reactive telemetry streams via `StateFlow`.
+- **16 KB Memory Alignment:** 100% compliant with Android 15+ ARM64 16 KB page size architecture (`useLegacyPackaging = false`).
 - **Declarative UI Layer:** Real-time tactical HUD built natively in **Jetpack Compose** with Material 3.
-- **Dependency Injection:** **Koin** for clean, lightweight module wiring.
+- **Dependency Injection:** **Koin** for clean, lightweight module wiring without annotation processing overhead.
 - **Testing Suite:** Comprehensive JVM unit testing with **JUnit 4**, **MockK**, **Google Truth**, and **kotlinx-coroutines-test**.
 
 ---
 
-## 📐 Architecture Decision Records (ADR)
+## 🏛️ Architecture Decision Records (ADR)
 
 All technical and algorithmic decisions are documented under `/docs/adr`:
 
@@ -54,7 +56,7 @@ All technical and algorithmic decisions are documented under `/docs/adr`:
 
 ---
 
-## 🚀 Build & Verification
+## 🛠️ Build & Verification
 
 Ensure you have **JDK 17** configured. To run the full verification pipeline locally:
 
@@ -64,3 +66,6 @@ Ensure you have **JDK 17** configured. To run the full verification pipeline loc
 
 # Assemble debug artifact
 ./gradlew assembleDebug
+
+# Install directly on a connected device
+./gradlew installDebug
