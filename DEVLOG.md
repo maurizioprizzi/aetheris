@@ -2,6 +2,169 @@
 
 Registro contínuo da engenharia, decisões arquiteturais (ADRs), modelagem matemática e evolução do ecossistema Aetheris.
 
+## 🚀 [Dia 10] - 2026-08-30: Medição Tridimensional Sequencial, Volume com Incerteza e Validação em Hardware
+
+### ✅ Objetivos Concluídos
+
+- [x] Criação do modelo `DimensionAxis` para representar e ordenar os três eixos espaciais: `WIDTH`, `HEIGHT` e `DEPTH`.
+- [x] Implementação de `SpatialDimensions` como estado imutável das medições confirmadas de largura, altura e profundidade.
+- [x] Inclusão de propriedades derivadas para contagem de eixos medidos, identificação do próximo eixo pendente e verificação de conclusão da medição tridimensional.
+- [x] Criação do modelo `VolumeMeasurement`, representando volume em metros cúbicos e litros, margem de incerteza, limites mínimo e máximo e incerteza relativa percentual.
+- [x] Implementação de formatação métrica automática para apresentação em litros ou metros cúbicos.
+- [x] Criação do `CalculateVolumeUseCase` para calcular o volume aproximado da caixa delimitadora espacial a partir de três medições lineares.
+- [x] Implementação da propagação independente das incertezas de largura, altura e profundidade no resultado volumétrico.
+- [x] Refatoração do `MeasurementUiState` para armazenar dimensões confirmadas, volume calculado, eixo atual e progresso completo da captura tridimensional.
+- [x] Refatoração do `MeasurementViewModel` para coordenar o fluxo sequencial `WIDTH → HEIGHT → DEPTH`.
+- [x] Implementação da confirmação individual de cada eixo, com limpeza das âncoras entre as etapas e preservação das dimensões já registradas.
+- [x] Cálculo automático do volume após a confirmação da profundidade.
+- [x] Implementação de reset parcial da dimensão atual e reset completo da medição tridimensional.
+- [x] Registro de `CalculateVolumeUseCase` no módulo Koin e atualização da injeção do `MeasurementViewModel`.
+- [x] Refatoração completa da `MeasurementScreen` com indicadores de progresso para largura, altura e profundidade.
+- [x] Inclusão de controles contextuais para fixar pontos, confirmar dimensões, refazer o eixo atual e reiniciar todo o processo.
+- [x] Inclusão do painel final de volume com incerteza e resumo das três dimensões confirmadas.
+- [x] Criação e ampliação das suítes de testes de domínio, casos de uso, estado de interface e ViewModel.
+- [x] Validação integral por testes unitários, Android Lint e montagem do APK de Debug.
+- [x] Publicação da funcionalidade no commit `5a07c5c` (`feat: add three-axis spatial volume measurement`).
+
+### 📐 Modelagem Matemática
+
+O volume aproximado é calculado como uma caixa delimitadora tridimensional:
+
+\[
+V = w \times h \times d
+\]
+
+onde:
+
+- \(w\) representa a largura;
+- \(h\) representa a altura;
+- \(d\) representa a profundidade.
+
+A incerteza volumétrica é propagada considerando as incertezas independentes dos três eixos:
+
+\[
+u_V = \sqrt{
+(h \times d \times u_w)^2 +
+(w \times d \times u_h)^2 +
+(w \times h \times u_d)^2
+}
+\]
+
+Essa formulação evita divisões por zero e continua válida quando uma das dimensões medidas é igual a zero.
+
+O resultado é apresentado como uma estimativa geométrica da caixa delimitadora do objeto, não como seu volume físico exato. Objetos com formas irregulares exigirão segmentação espacial e reconstrução geométrica em etapas futuras.
+
+### 🧠 Decisões de Arquitetura
+
+1. **Sequenciamento explícito dos eixos:**
+  - O domínio define a ordem `WIDTH → HEIGHT → DEPTH` sem depender da interface Android.
+  - O próximo eixo é derivado das dimensões ainda ausentes, reduzindo estados inconsistentes.
+
+2. **Estado imutável das dimensões:**
+  - Cada confirmação produz uma nova instância de `SpatialDimensions`.
+  - Medições anteriores são preservadas enquanto as âncoras do eixo atual são liberadas.
+
+3. **Separação entre distância e volume:**
+  - `DistanceMeasurement` representa medições lineares.
+  - `VolumeMeasurement` representa o resultado volumétrico e sua incerteza.
+  - `CalculateVolumeUseCase` concentra a regra matemática sem dependências do Android ou ARCore.
+
+4. **Orquestração no ViewModel:**
+  - A interface apenas emite eventos de posicionamento, confirmação, repetição e reset.
+  - O `MeasurementViewModel` controla a transição entre eixos e o cálculo final.
+
+5. **Volume como aproximação AABB:**
+  - O primeiro estágio usa uma caixa delimitadora formada por largura, altura e profundidade.
+  - A decisão mantém o fluxo testável e prepara a arquitetura para futura segmentação de objetos e nuvens de pontos.
+
+### 🧪 Cobertura e Validação
+
+Foram adicionados ou ampliados testes para:
+
+- ordem e transição dos valores de `DimensionAxis`;
+- imutabilidade e progressão de `SpatialDimensions`;
+- conversão entre metros cúbicos e litros;
+- validação de volumes e incertezas não negativos e finitos;
+- limites mínimo e máximo de `VolumeMeasurement`;
+- propagação matemática das incertezas dos três eixos;
+- comportamento com dimensões ou volume iguais a zero;
+- rejeição de conjuntos incompletos de dimensões;
+- progressão de largura para altura e profundidade no estado visual;
+- confirmação sequencial dos três eixos pelo ViewModel;
+- limpeza das âncoras entre dimensões;
+- cálculo automático do volume ao concluir a profundidade;
+- reset parcial e completo da medição.
+
+Pipeline final executado:
+
+```bash
+./gradlew testDebugUnitTest lintDebug assembleDebug \
+  --no-configuration-cache
+```
+
+Resultado:
+
+```text
+BUILD SUCCESSFUL
+53 actionable tasks: 16 executed, 37 up-to-date
+```
+
+### 📱 Validação Inicial no Dispositivo
+
+O APK foi executado em um aparelho físico com ARCore. A sessão:
+
+- iniciou corretamente;
+- carregou todas as dependências do Koin;
+- processou aproximadamente 1.216 frames da câmera;
+- encerrou com `Session::PauseWithAnalytics returning OK`;
+- não apresentou `FATAL EXCEPTION`, ANR ou crash do processo;
+- não apresentou exceções Kotlin relacionadas às novas dimensões ou ao cálculo de volume.
+
+O teste funcional completo não pôde ser concluído devido à baixa luminosidade do ambiente. O ARCore registrou dificuldade para encontrar pontos visuais consistentes e refinar planos físicos:
+
+- 246 ocorrências internas de refinamento de plano sem inliers suficientes;
+- 5 ocorrências internas de `ComputeDisparity` no serviço nativo do ARCore;
+- uma ocorrência de extração de características acima do tempo esperado;
+- atraso perceptível na inicialização e no encerramento da sessão.
+
+Apesar dessas mensagens nativas, não houve encerramento anormal. A validação funcional será repetida em ambiente bem iluminado e com superfícies texturizadas antes de novas alterações no pipeline de medição.
+
+### 🧩 Diagnóstico Técnico
+
+1. **Baixa luminosidade e poucos marcos visuais:**
+  - *Efeito:* dificuldade para estabilizar planos e habilitar a mira de posicionamento.
+  - *Ação definida:* repetir o teste com iluminação uniforme, movimento lento da câmera e superfícies com textura.
+
+2. **Mensagens internas de `ComputeDisparity`:**
+  - *Observação:* continuaram presentes no Google Play Services for AR mesmo com `DepthMode.DISABLED` na configuração pública da sessão.
+  - *Decisão:* manter o fallback sem Depth API e não alterar o domínio ou o ViewModel com base apenas em mensagens internas do serviço nativo.
+
+3. **Aviso de contexto Compose do Koin:**
+  - *Efeito:* o Koin utilizou corretamente o contexto global iniciado pelo `AetherisApplication`.
+  - *Prioridade:* baixa; não afetou a resolução das dependências nem o funcionamento do aplicativo.
+
+4. **Encerramento OpenGL/ARCore:**
+  - *Observação:* ocorreu uma mensagem isolada de chamada OpenGL sem contexto corrente durante a desmontagem.
+  - *Resultado:* a sessão retornou `OK` e o processo encerrou normalmente.
+  - *Ação definida:* repetir ciclos de abrir, minimizar, restaurar e fechar o aplicativo para verificar recorrência.
+
+### 🧭 Decisão de Arquitetura (ADR)
+
+- **ADR-015: Sequential Axis Capture and Uncertainty-Aware AABB Volume**
+  - **Contexto:** A medição de apenas uma distância não representa as dimensões espaciais necessárias para estimar volume e, futuramente, massa por densidade.
+  - **Decisão:** Capturar largura, altura e profundidade como medições lineares independentes, associar cada uma a um eixo explícito, liberar as âncoras entre etapas e calcular uma estimativa volumétrica AABB com propagação das incertezas.
+  - **Consequência:** O domínio permanece puro e testável, enquanto a apresentação ganha um fluxo progressivo capaz de evoluir posteriormente para segmentação automática, reconstrução 3D e modelos físicos específicos por material.
+
+### 📌 Próximos Passos Definidos para o Dia 11
+
+- [ ] Repetir o fluxo completo em um ambiente bem iluminado e com superfícies texturizadas.
+- [ ] Confirmar visualmente a sequência largura, altura, profundidade e volume no dispositivo.
+- [ ] Verificar a estabilidade dos pontos após cada confirmação e movimentação da câmera.
+- [ ] Repetir ciclos de pausa e retomada para avaliar o aviso isolado do contexto OpenGL.
+- [ ] Investigar a origem do aviso do contexto Compose/Koin sem alterar o funcionamento estável atual.
+- [ ] Melhorar as orientações visuais para baixa iluminação e rastreamento insuficiente, caso o novo teste confirme essa necessidade.
+- [ ] Somente depois da validação física, iniciar a modelagem de densidade de materiais e estimativa de massa para objetos.
+
 ---
 
 ## 🚀 [Dia 09] - 2026-08-29: Hardening do Pipeline ARCore, Segurança Numérica e Regressão Completa
