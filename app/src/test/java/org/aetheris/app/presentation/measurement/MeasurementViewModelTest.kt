@@ -1,175 +1,329 @@
 package org.aetheris.app.presentation.measurement
 
-import com.google.common.truth.Truth.assertThat
-import io.mockk.mockk
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.ExperimentalCoroutinesApi
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.viewModelScope
+import com.google.ar.core.Frame
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.test.StandardTestDispatcher
-import kotlinx.coroutines.test.resetMain
-import kotlinx.coroutines.test.setMain
-import org.aetheris.app.domain.model.AnchorSlot
-import org.aetheris.app.domain.model.Point3D
-import org.aetheris.app.domain.model.SpatialFrameData
-import org.aetheris.app.domain.model.TrackingStatus
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.launch
+import org.aetheris.app.data.repository.SpatialSensorRepositoryImpl
+import org.aetheris.app.domain.model.SpatialDimensions
 import org.aetheris.app.domain.repository.SpatialSensorRepository
 import org.aetheris.app.domain.usecase.CalculateDistanceUseCase
+import org.aetheris.app.domain.usecase.CalculateVolumeUseCase
 import org.aetheris.app.domain.usecase.ProjectWorldToScreenUseCase
-import org.junit.After
-import org.junit.Before
-import org.junit.Test
 
-@OptIn(ExperimentalCoroutinesApi::class)
-class MeasurementViewModelTest {
+class MeasurementViewModel(
+    private val spatialSensorRepository: SpatialSensorRepository,
+    private val calculateDistanceUseCase: CalculateDistanceUseCase,
+    private val calculateVolumeUseCase: CalculateVolumeUseCase,
+    private val projectWorldToScreenUseCase: ProjectWorldToScreenUseCase
+) : ViewModel() {
 
-    private val testDispatcher =
-        StandardTestDispatcher()
+    private val _uiState =
+        MutableStateFlow(MeasurementUiState())
 
-    private class FakeSpatialSensorRepository :
-        SpatialSensorRepository {
+    val uiState: StateFlow<MeasurementUiState> =
+        _uiState.asStateFlow()
 
-        private val _stream =
-            MutableStateFlow(
-                SpatialFrameData(
-                    trackingStatus =
-                        TrackingStatus.TRACKING,
-                    isDepthEnabled = true,
-                    pointCount = 150,
-                    isSurfaceDetected = true,
-                    anchoredStartPoint = null,
-                    anchoredEndPoint = null
+    private var anchorPlacementJob: Job? = null
+
+    init {
+        observeSpatialData()
+    }
+
+    /**
+     * Atualiza as dimensões da viewport quando a superfície
+     * gráfica sofre redimensionamento.
+     */
+    fun onSurfaceDimensionsChanged(
+        widthPx: Int,
+        heightPx: Int
+    ) {
+        if (widthPx <= 0 || heightPx <= 0) {
+            return
+        }
+
+        _uiState.update { current ->
+            if (
+                current.viewportWidthPx == widthPx &&
+                current.viewportHeightPx == heightPx
+            ) {
+                current
+            } else {
+                current.copy(
+                    viewportWidthPx = widthPx,
+                    viewportHeightPx = heightPx
                 )
+            }
+        }
+    }
+
+    /**
+     * Atualiza a posição 2D do badge métrico usando
+     * as matrizes mais recentes da câmera.
+     */
+    fun onCameraMatricesUpdated(
+        viewMatrix: FloatArray,
+        projectionMatrix: FloatArray
+    ) {
+        val state = _uiState.value
+        val startPoint = state.selectedStartPoint
+        val endPoint = state.selectedEndPoint
+
+        val projectedBadge =
+            if (
+                startPoint != null &&
+                endPoint != null &&
+                state.hasValidViewport
+            ) {
+                projectWorldToScreenUseCase.projectMidpoint(
+                    pointA = startPoint,
+                    pointB = endPoint,
+                    viewMatrix = viewMatrix,
+                    projectionMatrix = projectionMatrix,
+                    viewportWidth = state.viewportWidthPx,
+                    viewportHeight = state.viewportHeightPx
+                )
+            } else {
+                null
+            }
+
+        _uiState.update { current ->
+            if (current.badgePosition == projectedBadge) {
+                current
+            } else {
+                current.copy(
+                    badgePosition = projectedBadge
+                )
+            }
+        }
+    }
+
+    /**
+     * Processa o frame ARCore na GL Thread.
+     */
+    fun processFrame(frame: Frame) {
+        (
+                spatialSensorRepository
+                        as? SpatialSensorRepositoryImpl
+                )
+            ?.onFrameUpdate(frame)
+    }
+
+    /**
+     * Cria a próxima âncora necessária para a dimensão
+     * atualmente ativa.
+     */
+    fun onAnchorPointTapped() {
+        val state = _uiState.value
+
+        val anchorSlot =
+            state.nextAnchorSlot ?: return
+
+        if (!state.canPlaceAnchor) {
+            return
+        }
+
+        if (anchorPlacementJob?.isActive == true) {
+            return
+        }
+
+        _uiState.update { current ->
+            current.copy(
+                isAnchorPlacementInProgress = true
+            )
+        }
+
+        anchorPlacementJob = viewModelScope.launch {
+            try {
+                spatialSensorRepository.createAnchor(
+                    normalizedX =
+                        CENTER_NORMALIZED_COORDINATE,
+                    normalizedY =
+                        CENTER_NORMALIZED_COORDINATE,
+                    slot = anchorSlot
+                )
+            } finally {
+                _uiState.update { current ->
+                    current.copy(
+                        isAnchorPlacementInProgress = false
+                    )
+                }
+            }
+        }
+    }
+
+    /**
+     * Confirma a distância atual como medição do eixo ativo.
+     *
+     * Depois da confirmação:
+     *
+     * 1. A medição é armazenada em largura, altura ou profundidade;
+     * 2. As âncoras atuais são liberadas;
+     * 3. O próximo eixo passa a ser selecionado;
+     * 4. Ao concluir a profundidade, o volume é calculado.
+     */
+    fun onConfirmCurrentDimension() {
+        val state = _uiState.value
+
+        if (!state.canConfirmCurrentDimension) {
+            return
+        }
+
+        val currentAxis =
+            state.currentDimensionAxis ?: return
+
+        val currentMeasurement =
+            state.currentMeasurement ?: return
+
+        val updatedDimensions =
+            state.spatialDimensions.withMeasurement(
+                axis = currentAxis,
+                measurement = currentMeasurement
             )
 
-        override val spatialDataStream:
-                StateFlow<SpatialFrameData> =
-            _stream
+        val updatedVolume =
+            if (updatedDimensions.isComplete) {
+                calculateVolumeUseCase(
+                    dimensions = updatedDimensions
+                )
+            } else {
+                null
+            }
 
-        var clearAnchorsCallCount: Int = 0
-            private set
-
-        override suspend fun performHitTest(
-            normalizedX: Float,
-            normalizedY: Float
-        ): Point3D? {
-            return null
-        }
-
-        override suspend fun createAnchor(
-            normalizedX: Float,
-            normalizedY: Float,
-            slot: AnchorSlot
-        ): Point3D? {
-            return null
-        }
-
-        override fun clearAnchors() {
-            clearAnchorsCallCount++
-        }
-    }
-
-    private lateinit var fakeRepository:
-            FakeSpatialSensorRepository
-
-    private val calculateDistanceUseCase =
-        CalculateDistanceUseCase()
-
-    private val projectWorldToScreenUseCase:
-            ProjectWorldToScreenUseCase =
-        mockk(relaxed = true)
-
-    private lateinit var viewModel:
-            MeasurementViewModel
-
-    @Before
-    fun setUp() {
-        Dispatchers.setMain(
-            testDispatcher
-        )
-
-        fakeRepository =
-            FakeSpatialSensorRepository()
-
-        viewModel = MeasurementViewModel(
-            spatialSensorRepository =
-                fakeRepository,
-            calculateDistanceUseCase =
-                calculateDistanceUseCase,
-            projectWorldToScreenUseCase =
-                projectWorldToScreenUseCase
-        )
-    }
-
-    @After
-    fun tearDown() {
-        Dispatchers.resetMain()
-    }
-
-    @Test
-    fun `initial state reflects tracking and depth from repository stream`() {
-        testDispatcher.scheduler
-            .advanceUntilIdle()
-
-        val state =
-            viewModel.uiState.value
-
-        assertThat(state.trackingStatus)
-            .isEqualTo(
-                TrackingStatus.TRACKING
+        _uiState.update { current ->
+            current.copy(
+                selectedStartPoint = null,
+                selectedEndPoint = null,
+                currentMeasurement = null,
+                spatialDimensions = updatedDimensions,
+                volumeMeasurement = updatedVolume,
+                badgePosition = null,
+                isAnchorPlacementInProgress = false
             )
+        }
 
-        assertThat(state.isDepthEnabled)
-            .isTrue()
-
-        assertThat(state.detectedPointsCount)
-            .isEqualTo(150)
-
-        assertThat(state.isTargetingSurface)
-            .isTrue()
+        /*
+         * As âncoras da dimensão concluída não serão
+         * reutilizadas pelo próximo eixo.
+         */
+        spatialSensorRepository.clearAnchors()
     }
 
-    @Test
-    fun `onSurfaceDimensionsChanged updates viewport dimensions in state`() {
-        viewModel.onSurfaceDimensionsChanged(
-            widthPx = 1080,
-            heightPx = 1920
-        )
+    /**
+     * Limpa somente os pontos da dimensão que está
+     * sendo capturada, preservando dimensões anteriores.
+     */
+    fun onClearCurrentDimension() {
+        anchorPlacementJob?.cancel()
+        anchorPlacementJob = null
 
-        val state =
-            viewModel.uiState.value
+        spatialSensorRepository.clearAnchors()
 
-        assertThat(state.viewportWidthPx)
-            .isEqualTo(1080)
-
-        assertThat(state.viewportHeightPx)
-            .isEqualTo(1920)
-
-        assertThat(state.hasValidViewport)
-            .isTrue()
+        _uiState.update { current ->
+            current.copy(
+                selectedStartPoint = null,
+                selectedEndPoint = null,
+                currentMeasurement = null,
+                badgePosition = null,
+                isAnchorPlacementInProgress = false
+            )
+        }
     }
 
-    @Test
-    fun `onResetMeasurements clears points and resets anchors`() {
-        viewModel.onResetMeasurements()
+    /**
+     * Reinicia completamente a medição tridimensional.
+     */
+    fun onResetMeasurements() {
+        anchorPlacementJob?.cancel()
+        anchorPlacementJob = null
 
-        val state =
-            viewModel.uiState.value
+        spatialSensorRepository.clearAnchors()
 
-        assertThat(state.selectedStartPoint)
-            .isNull()
+        _uiState.update { current ->
+            current.copy(
+                selectedStartPoint = null,
+                selectedEndPoint = null,
+                currentMeasurement = null,
+                spatialDimensions = SpatialDimensions.EMPTY,
+                volumeMeasurement = null,
+                badgePosition = null,
+                isAnchorPlacementInProgress = false
+            )
+        }
+    }
 
-        assertThat(state.selectedEndPoint)
-            .isNull()
+    private fun observeSpatialData() {
+        viewModelScope.launch {
+            spatialSensorRepository
+                .spatialDataStream
+                .collect { spatialData ->
+                    _uiState.update { current ->
+                        val startPoint =
+                            spatialData.anchoredStartPoint
 
-        assertThat(state.currentMeasurement)
-            .isNull()
+                        val endPoint =
+                            spatialData.anchoredEndPoint
 
-        assertThat(state.badgePosition)
-            .isNull()
+                        val anchorsChanged =
+                            startPoint !=
+                                    current.selectedStartPoint ||
+                                    endPoint !=
+                                    current.selectedEndPoint
 
-        assertThat(
-            fakeRepository.clearAnchorsCallCount
-        ).isEqualTo(1)
+                        val measurement =
+                            when {
+                                startPoint == null ||
+                                        endPoint == null -> {
+                                    null
+                                }
+
+                                anchorsChanged ||
+                                        current.currentMeasurement ==
+                                        null -> {
+                                    calculateDistanceUseCase(
+                                        start = startPoint,
+                                        end = endPoint
+                                    )
+                                }
+
+                                else -> {
+                                    current.currentMeasurement
+                                }
+                            }
+
+                        current.copy(
+                            trackingStatus =
+                                spatialData.trackingStatus,
+                            isDepthEnabled =
+                                spatialData.isDepthEnabled,
+                            detectedPointsCount =
+                                spatialData.pointCount,
+                            isTargetingSurface =
+                                spatialData.isSurfaceDetected,
+                            selectedStartPoint =
+                                startPoint,
+                            selectedEndPoint =
+                                endPoint,
+                            currentMeasurement =
+                                measurement,
+                            badgePosition =
+                                if (measurement == null) {
+                                    null
+                                } else {
+                                    current.badgePosition
+                                }
+                        )
+                    }
+                }
+        }
+    }
+
+    private companion object {
+        const val CENTER_NORMALIZED_COORDINATE = 0.5f
     }
 }

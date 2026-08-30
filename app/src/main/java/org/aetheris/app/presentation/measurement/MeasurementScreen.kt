@@ -34,13 +34,17 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import kotlinx.coroutines.launch
 import org.aetheris.app.data.arcore.ArCoreSessionManager
+import org.aetheris.app.domain.model.DimensionAxis
 import org.aetheris.app.domain.model.DistanceMeasurement
+import org.aetheris.app.domain.model.SpatialDimensions
 import org.aetheris.app.domain.model.TrackingStatus
+import org.aetheris.app.domain.model.VolumeMeasurement
 import org.aetheris.app.presentation.components.ArCameraFeed
 import org.aetheris.app.presentation.components.FloatingMeasurementBadge
 import org.aetheris.app.presentation.permissions.CameraPermissionHandler
@@ -53,8 +57,8 @@ fun MeasurementScreen(
     viewModel: MeasurementViewModel = koinViewModel(),
     sessionManager: ArCoreSessionManager = koinInject()
 ) {
-    val uiState by viewModel.uiState
-        .collectAsStateWithLifecycle()
+    val uiState by
+    viewModel.uiState.collectAsStateWithLifecycle()
 
     val snackbarHostState = remember {
         SnackbarHostState()
@@ -88,18 +92,22 @@ fun MeasurementScreen(
             )
 
             /*
-             * O indicador ocupa a mesma área usada pela câmera,
-             * mantendo as coordenadas projetadas alinhadas à tela.
+             * O badge utiliza a mesma área da câmera para
+             * manter as coordenadas projetadas alinhadas.
              */
             FloatingMeasurementBadge(
-                measurement = uiState.currentMeasurement,
-                screenPosition = uiState.badgePosition,
+                measurement =
+                    uiState.currentMeasurement,
+                screenPosition =
+                    uiState.badgePosition,
                 modifier = Modifier.fillMaxSize()
             )
 
             MeasurementTelemetryHud(
-                trackingStatus = uiState.trackingStatus,
-                isDepthActive = uiState.isDepthEnabled,
+                trackingStatus =
+                    uiState.trackingStatus,
+                isDepthActive =
+                    uiState.isDepthEnabled,
                 detectedPointCount =
                     uiState.detectedPointsCount,
                 modifier = Modifier
@@ -123,23 +131,13 @@ fun MeasurementScreen(
             )
 
             MeasurementControlPanel(
-                measurement = uiState.currentMeasurement,
-                trackingStatus = uiState.trackingStatus,
-                isTargetingSurface =
-                    uiState.isTargetingSurface,
-                hasStartPoint =
-                    uiState.selectedStartPoint != null,
-                hasEndPoint =
-                    uiState.selectedEndPoint != null,
-                isAnchorPlacementInProgress =
-                    uiState.isAnchorPlacementInProgress,
-                canPlaceAnchor =
-                    uiState.canPlaceAnchor,
-                canReset =
-                    uiState.canResetMeasurement ||
-                            uiState.isAnchorPlacementInProgress,
+                uiState = uiState,
                 onPlaceAnchor =
                     viewModel::onAnchorPointTapped,
+                onConfirmDimension =
+                    viewModel::onConfirmCurrentDimension,
+                onClearCurrentDimension =
+                    viewModel::onClearCurrentDimension,
                 onReset =
                     viewModel::onResetMeasurements,
                 modifier = Modifier
@@ -232,23 +230,37 @@ private fun TargetReticle(
 
 @Composable
 private fun MeasurementControlPanel(
-    measurement: DistanceMeasurement?,
-    trackingStatus: TrackingStatus,
-    isTargetingSurface: Boolean,
-    hasStartPoint: Boolean,
-    hasEndPoint: Boolean,
-    isAnchorPlacementInProgress: Boolean,
-    canPlaceAnchor: Boolean,
-    canReset: Boolean,
+    uiState: MeasurementUiState,
     onPlaceAnchor: () -> Unit,
+    onConfirmDimension: () -> Unit,
+    onClearCurrentDimension: () -> Unit,
     onReset: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val hasCurrentCapture =
+        uiState.hasStartPoint ||
+                uiState.hasEndPoint ||
+                uiState.currentMeasurement != null
+
+    val primaryButtonAction =
+        if (uiState.canConfirmCurrentDimension) {
+            onConfirmDimension
+        } else {
+            onPlaceAnchor
+        }
+
+    val primaryButtonEnabled =
+        if (uiState.canConfirmCurrentDimension) {
+            true
+        } else {
+            uiState.canPlaceAnchor
+        }
+
     Card(
         modifier = modifier,
         colors = CardDefaults.cardColors(
             containerColor =
-                PanelColor.copy(alpha = 0.92f)
+                PanelColor.copy(alpha = 0.94f)
         ),
         shape = RoundedCornerShape(16.dp)
     ) {
@@ -257,20 +269,53 @@ private fun MeasurementControlPanel(
             horizontalAlignment =
                 Alignment.CenterHorizontally
         ) {
-            if (measurement != null) {
-                MeasurementResult(
-                    measurement = measurement
-                )
-            } else {
-                MeasurementInstruction(
-                    trackingStatus = trackingStatus,
-                    isTargetingSurface =
-                        isTargetingSurface,
-                    hasStartPoint = hasStartPoint,
-                    hasEndPoint = hasEndPoint,
-                    isAnchorPlacementInProgress =
-                        isAnchorPlacementInProgress
-                )
+            DimensionProgressIndicator(
+                dimensions =
+                    uiState.spatialDimensions,
+                currentAxis =
+                    uiState.currentDimensionAxis
+            )
+
+            Spacer(
+                modifier = Modifier.height(16.dp)
+            )
+
+            when {
+                uiState.volumeMeasurement != null -> {
+                    VolumeResult(
+                        volume =
+                            uiState.volumeMeasurement,
+                        dimensions =
+                            uiState.spatialDimensions
+                    )
+                }
+
+                uiState.currentMeasurement != null -> {
+                    MeasurementResult(
+                        measurement =
+                            uiState.currentMeasurement,
+                        axis =
+                            uiState.currentDimensionAxis
+                    )
+                }
+
+                else -> {
+                    MeasurementInstruction(
+                        trackingStatus =
+                            uiState.trackingStatus,
+                        isTargetingSurface =
+                            uiState.isTargetingSurface,
+                        hasStartPoint =
+                            uiState.hasStartPoint,
+                        hasEndPoint =
+                            uiState.hasEndPoint,
+                        currentAxis =
+                            uiState.currentDimensionAxis,
+                        hasCompleteDimensions =
+                            uiState
+                                .hasCompleteSpatialDimensions
+                    )
+                }
             }
 
             Spacer(
@@ -283,32 +328,34 @@ private fun MeasurementControlPanel(
                     Arrangement.spacedBy(12.dp)
             ) {
                 Button(
-                    onClick = onPlaceAnchor,
-                    enabled = canPlaceAnchor,
+                    onClick = primaryButtonAction,
+                    enabled = primaryButtonEnabled,
                     modifier = Modifier.weight(1f),
                     colors = ButtonDefaults.buttonColors(
                         containerColor = SuccessColor
                     )
                 ) {
                     Text(
-                        text = if (
-                            isAnchorPlacementInProgress
-                        ) {
-                            "Fixando ponto..."
-                        } else {
-                            anchorButtonLabel(
-                                hasStartPoint =
-                                    hasStartPoint,
-                                hasEndPoint =
-                                    hasEndPoint
-                            )
-                        }
+                        text = primaryButtonLabel(
+                            uiState = uiState
+                        ),
+                        textAlign = TextAlign.Center
                     )
                 }
 
                 OutlinedButton(
-                    onClick = onReset,
-                    enabled = canReset,
+                    onClick = {
+                        if (hasCurrentCapture) {
+                            onClearCurrentDimension()
+                        } else {
+                            onReset()
+                        }
+                    },
+                    enabled = if (hasCurrentCapture) {
+                        true
+                    } else {
+                        uiState.canResetMeasurement
+                    },
                     colors =
                         ButtonDefaults
                             .outlinedButtonColors(
@@ -316,12 +363,10 @@ private fun MeasurementControlPanel(
                             )
                 ) {
                     Text(
-                        text = if (
-                            isAnchorPlacementInProgress
-                        ) {
-                            "Cancelar"
+                        text = if (hasCurrentCapture) {
+                            "Refazer"
                         } else {
-                            "Limpar"
+                            "Reiniciar"
                         }
                     )
                 }
@@ -331,10 +376,95 @@ private fun MeasurementControlPanel(
 }
 
 @Composable
+private fun DimensionProgressIndicator(
+    dimensions: SpatialDimensions,
+    currentAxis: DimensionAxis?
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement =
+            Arrangement.spacedBy(8.dp)
+    ) {
+        DimensionAxis.entries.forEach { axis ->
+            val isMeasured =
+                dimensions[axis] != null
+
+            val isCurrent =
+                axis == currentAxis
+
+            DimensionAxisBadge(
+                axis = axis,
+                isMeasured = isMeasured,
+                isCurrent = isCurrent,
+                modifier = Modifier.weight(1f)
+            )
+        }
+    }
+}
+
+@Composable
+private fun DimensionAxisBadge(
+    axis: DimensionAxis,
+    isMeasured: Boolean,
+    isCurrent: Boolean,
+    modifier: Modifier = Modifier
+) {
+    val backgroundColor = when {
+        isMeasured -> SuccessColor
+        isCurrent -> ActiveAxisColor
+        else -> InactiveColor
+    }
+
+    val label = buildString {
+        append(axis.shortLabel())
+
+        when {
+            isMeasured -> append(" ✓")
+            isCurrent -> append(" •")
+        }
+    }
+
+    Surface(
+        modifier = modifier,
+        color = backgroundColor,
+        shape = RoundedCornerShape(6.dp)
+    ) {
+        Text(
+            text = label,
+            modifier = Modifier.padding(
+                horizontal = 6.dp,
+                vertical = 6.dp
+            ),
+            fontSize = 11.sp,
+            fontFamily = FontFamily.Monospace,
+            fontWeight = FontWeight.Bold,
+            color = Color.White,
+            textAlign = TextAlign.Center,
+            maxLines = 1
+        )
+    }
+}
+
+@Composable
 private fun MeasurementResult(
-    measurement: DistanceMeasurement
+    measurement: DistanceMeasurement,
+    axis: DimensionAxis?
 ) {
     val locale = Locale.getDefault()
+
+    Text(
+        text = axis?.displayName()
+            ?: "DIMENSÃO",
+        fontSize = 12.sp,
+        fontWeight = FontWeight.Bold,
+        fontFamily = FontFamily.Monospace,
+        color = ActiveAxisColor,
+        letterSpacing = 1.sp
+    )
+
+    Spacer(
+        modifier = Modifier.height(4.dp)
+    )
 
     Text(
         text = measurement.formattedValueOnly(
@@ -346,27 +476,149 @@ private fun MeasurementResult(
         color = Color.White
     )
 
-    val uncertaintyText =
-        if (measurement.meters < 1f) {
-            String.format(
-                locale,
-                "±%.1f cm",
-                measurement.uncertaintyCentimeters
-            )
-        } else {
-            String.format(
-                locale,
-                "±%.3f m",
-                measurement.uncertaintyMeters
-            )
-        }
-
     Text(
-        text = uncertaintyText,
+        text = distanceUncertaintyText(
+            measurement = measurement,
+            locale = locale
+        ),
         fontSize = 13.sp,
         fontFamily = FontFamily.Monospace,
         color = SecondaryTextColor
     )
+
+    Spacer(
+        modifier = Modifier.height(6.dp)
+    )
+
+    Text(
+        text = "Confirme para salvar esta dimensão",
+        fontSize = 13.sp,
+        color = PrimaryTextColor,
+        textAlign = TextAlign.Center
+    )
+}
+
+@Composable
+private fun VolumeResult(
+    volume: VolumeMeasurement,
+    dimensions: SpatialDimensions
+) {
+    val locale = Locale.getDefault()
+
+    Text(
+        text = "VOLUME ESTIMADO",
+        fontSize = 12.sp,
+        fontWeight = FontWeight.Bold,
+        fontFamily = FontFamily.Monospace,
+        color = VolumeColor,
+        letterSpacing = 1.sp
+    )
+
+    Spacer(
+        modifier = Modifier.height(4.dp)
+    )
+
+    Text(
+        text = volume.formattedValueOnly(
+            locale = locale
+        ),
+        fontSize = 34.sp,
+        fontWeight = FontWeight.Bold,
+        fontFamily = FontFamily.Monospace,
+        color = Color.White,
+        textAlign = TextAlign.Center
+    )
+
+    Text(
+        text = volumeUncertaintyText(
+            volume = volume,
+            locale = locale
+        ),
+        fontSize = 13.sp,
+        fontFamily = FontFamily.Monospace,
+        color = SecondaryTextColor
+    )
+
+    Spacer(
+        modifier = Modifier.height(12.dp)
+    )
+
+    DimensionSummary(
+        dimensions = dimensions,
+        locale = locale
+    )
+
+    Spacer(
+        modifier = Modifier.height(8.dp)
+    )
+
+    Text(
+        text = "Volume aproximado da caixa delimitadora",
+        fontSize = 11.sp,
+        color = SecondaryTextColor,
+        textAlign = TextAlign.Center
+    )
+}
+
+@Composable
+private fun DimensionSummary(
+    dimensions: SpatialDimensions,
+    locale: Locale
+) {
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        verticalArrangement =
+            Arrangement.spacedBy(4.dp)
+    ) {
+        DimensionSummaryRow(
+            label = "Largura",
+            measurement = dimensions.width,
+            locale = locale
+        )
+
+        DimensionSummaryRow(
+            label = "Altura",
+            measurement = dimensions.height,
+            locale = locale
+        )
+
+        DimensionSummaryRow(
+            label = "Profundidade",
+            measurement = dimensions.depth,
+            locale = locale
+        )
+    }
+}
+
+@Composable
+private fun DimensionSummaryRow(
+    label: String,
+    measurement: DistanceMeasurement?,
+    locale: Locale
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement =
+            Arrangement.SpaceBetween,
+        verticalAlignment =
+            Alignment.CenterVertically
+    ) {
+        Text(
+            text = label,
+            fontSize = 12.sp,
+            color = SecondaryTextColor
+        )
+
+        Text(
+            text = measurement
+                ?.formattedValueOnly(locale)
+                ?: "—",
+            fontSize = 12.sp,
+            fontWeight = FontWeight.Bold,
+            fontFamily = FontFamily.Monospace,
+            color = PrimaryTextColor
+        )
+    }
 }
 
 @Composable
@@ -375,40 +627,55 @@ private fun MeasurementInstruction(
     isTargetingSurface: Boolean,
     hasStartPoint: Boolean,
     hasEndPoint: Boolean,
-    isAnchorPlacementInProgress: Boolean
+    currentAxis: DimensionAxis?,
+    hasCompleteDimensions: Boolean
 ) {
-    val instruction = when {
-        isAnchorPlacementInProgress -> {
-            "Fixando o ponto no ambiente..."
-        }
+    val dimensionName =
+        currentAxis?.displayName()?.lowercase(
+            Locale.getDefault()
+        ) ?: "dimensão"
 
-        trackingStatus != TrackingStatus.TRACKING -> {
+    val instruction = when {
+        hasCompleteDimensions ->
+            "Calculando o volume estimado"
+
+        trackingStatus != TrackingStatus.TRACKING ->
             trackingInstruction(
                 status = trackingStatus
             )
-        }
 
-        !isTargetingSurface -> {
+        !isTargetingSurface ->
             "Aponte a mira para uma superfície detectada"
-        }
 
-        !hasStartPoint -> {
-            "Posicione a mira e fixe o ponto A"
-        }
+        !hasStartPoint ->
+            "Fixe o ponto A da $dimensionName"
 
-        !hasEndPoint -> {
-            "Posicione a mira e fixe o ponto B"
-        }
+        !hasEndPoint ->
+            "Fixe o ponto B da $dimensionName"
 
-        else -> {
-            "Medição concluída"
-        }
+        else ->
+            "Confirme a medição da $dimensionName"
     }
+
+    Text(
+        text = currentAxis?.displayName()
+            ?: "MEDIÇÃO CONCLUÍDA",
+        fontSize = 12.sp,
+        fontWeight = FontWeight.Bold,
+        fontFamily = FontFamily.Monospace,
+        color = ActiveAxisColor,
+        letterSpacing = 1.sp
+    )
+
+    Spacer(
+        modifier = Modifier.height(8.dp)
+    )
 
     Text(
         text = instruction,
         fontSize = 14.sp,
-        color = PrimaryTextColor
+        color = PrimaryTextColor,
+        textAlign = TextAlign.Center
     )
 }
 
@@ -520,22 +787,88 @@ private fun DepthIndicatorBadge(
     }
 }
 
-private fun anchorButtonLabel(
-    hasStartPoint: Boolean,
-    hasEndPoint: Boolean
+private fun primaryButtonLabel(
+    uiState: MeasurementUiState
 ): String {
+    if (uiState.volumeMeasurement != null) {
+        return "Volume calculado"
+    }
+
+    val axisName =
+        uiState.currentDimensionAxis
+            ?.displayName()
+            ?.lowercase(Locale.getDefault())
+            ?: "dimensão"
+
     return when {
-        !hasStartPoint -> {
+        uiState.isAnchorPlacementInProgress ->
+            "Fixando ponto..."
+
+        uiState.canConfirmCurrentDimension ->
+            "Confirmar $axisName"
+
+        !uiState.hasStartPoint ->
             "Fixar ponto A"
-        }
 
-        !hasEndPoint -> {
+        !uiState.hasEndPoint ->
             "Fixar ponto B"
-        }
 
-        else -> {
-            "Medição concluída"
-        }
+        else ->
+            "Aguardando medição"
+    }
+}
+
+private fun distanceUncertaintyText(
+    measurement: DistanceMeasurement,
+    locale: Locale
+): String {
+    return if (measurement.meters < 1f) {
+        String.format(
+            locale,
+            "±%.1f cm",
+            measurement.uncertaintyCentimeters
+        )
+    } else {
+        String.format(
+            locale,
+            "±%.3f m",
+            measurement.uncertaintyMeters
+        )
+    }
+}
+
+private fun volumeUncertaintyText(
+    volume: VolumeMeasurement,
+    locale: Locale
+): String {
+    return if (volume.cubicMeters < 1f) {
+        String.format(
+            locale,
+            "±%.1f L",
+            volume.uncertaintyLiters
+        )
+    } else {
+        String.format(
+            locale,
+            "±%.3f m³",
+            volume.uncertaintyCubicMeters
+        )
+    }
+}
+
+private fun DimensionAxis.displayName(): String {
+    return when (this) {
+        DimensionAxis.WIDTH -> "LARGURA"
+        DimensionAxis.HEIGHT -> "ALTURA"
+        DimensionAxis.DEPTH -> "PROFUNDIDADE"
+    }
+}
+
+private fun DimensionAxis.shortLabel(): String {
+    return when (this) {
+        DimensionAxis.WIDTH -> "LARG."
+        DimensionAxis.HEIGHT -> "ALT."
+        DimensionAxis.DEPTH -> "PROF."
     }
 }
 
@@ -543,37 +876,29 @@ private fun trackingInstruction(
     status: TrackingStatus
 ): String {
     return when (status) {
-        TrackingStatus.INITIALIZING -> {
+        TrackingStatus.INITIALIZING ->
             "Inicializando o rastreamento"
-        }
 
-        TrackingStatus.EXCESSIVE_MOTION -> {
+        TrackingStatus.EXCESSIVE_MOTION ->
             "Movimente o aparelho mais devagar"
-        }
 
-        TrackingStatus.INSUFFICIENT_FEATURES -> {
+        TrackingStatus.INSUFFICIENT_FEATURES ->
             "Aponte para uma superfície com mais detalhes"
-        }
 
-        TrackingStatus.INSUFFICIENT_LIGHT -> {
+        TrackingStatus.INSUFFICIENT_LIGHT ->
             "Melhore a iluminação do ambiente"
-        }
 
-        TrackingStatus.CAMERA_UNAVAILABLE -> {
+        TrackingStatus.CAMERA_UNAVAILABLE ->
             "A câmera está indisponível"
-        }
 
-        TrackingStatus.PAUSED -> {
+        TrackingStatus.PAUSED ->
             "Rastreamento pausado"
-        }
 
-        TrackingStatus.UNAVAILABLE -> {
+        TrackingStatus.UNAVAILABLE ->
             "Rastreamento indisponível"
-        }
 
-        TrackingStatus.TRACKING -> {
+        TrackingStatus.TRACKING ->
             ""
-        }
     }
 }
 
@@ -608,3 +933,9 @@ private val InactiveColor =
 
 private val DepthActiveColor =
     Color(0xFF1F6FEB)
+
+private val ActiveAxisColor =
+    Color(0xFF1F6FEB)
+
+private val VolumeColor =
+    Color(0xFFA371F7)

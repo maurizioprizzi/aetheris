@@ -1,13 +1,25 @@
 package org.aetheris.app.presentation.measurement
 
 import org.aetheris.app.domain.model.AnchorSlot
+import org.aetheris.app.domain.model.DimensionAxis
 import org.aetheris.app.domain.model.DistanceMeasurement
 import org.aetheris.app.domain.model.Point3D
 import org.aetheris.app.domain.model.ScreenPoint2D
+import org.aetheris.app.domain.model.SpatialDimensions
 import org.aetheris.app.domain.model.TrackingStatus
+import org.aetheris.app.domain.model.VolumeMeasurement
 
 /**
- * Estado visual imutável da tela de medição espacial.
+ * Estado visual da tela de medição espacial.
+ *
+ * Uma dimensão é capturada por vez utilizando dois pontos:
+ *
+ * 1. Largura;
+ * 2. Altura;
+ * 3. Profundidade.
+ *
+ * Depois que os três eixos são concluídos, o aplicativo
+ * pode calcular o volume aproximado da caixa delimitadora.
  */
 data class MeasurementUiState(
     val trackingStatus: TrackingStatus =
@@ -21,12 +33,38 @@ data class MeasurementUiState(
 
     val isAnchorPlacementInProgress: Boolean = false,
 
+    /**
+     * Primeiro ponto da dimensão que está sendo medida.
+     */
     val selectedStartPoint: Point3D? = null,
 
+    /**
+     * Segundo ponto da dimensão que está sendo medida.
+     */
     val selectedEndPoint: Point3D? = null,
 
+    /**
+     * Distância entre os dois pontos da dimensão atual.
+     *
+     * Depois da confirmação, essa medição será armazenada
+     * em [spatialDimensions].
+     */
     val currentMeasurement: DistanceMeasurement? = null,
 
+    /**
+     * Largura, altura e profundidade já confirmadas.
+     */
+    val spatialDimensions: SpatialDimensions =
+        SpatialDimensions.EMPTY,
+
+    /**
+     * Volume calculado depois da confirmação dos três eixos.
+     */
+    val volumeMeasurement: VolumeMeasurement? = null,
+
+    /**
+     * Posição projetada do indicador da dimensão atual.
+     */
     val badgePosition: ScreenPoint2D? = null,
 
     val viewportWidthPx: Int = 0,
@@ -47,17 +85,9 @@ data class MeasurementUiState(
         }
     }
 
-    /**
-     * Indica que o ARCore está rastreando
-     * normalmente o ambiente.
-     */
     val isTracking: Boolean
-        get() = trackingStatus.allowsAnchorPlacement
+        get() = trackingStatus == TrackingStatus.TRACKING
 
-    /**
-     * Indica que a superfície gráfica possui
-     * dimensões válidas para projeção.
-     */
     val hasValidViewport: Boolean
         get() = viewportWidthPx > 0 &&
                 viewportHeightPx > 0
@@ -68,24 +98,16 @@ data class MeasurementUiState(
     val hasEndPoint: Boolean
         get() = selectedEndPoint != null
 
+    /**
+     * Quantidade de âncoras da dimensão atualmente ativa.
+     */
     val anchorCount: Int
-        get() {
-            var count = 0
-
-            if (hasStartPoint) {
-                count++
-            }
-
-            if (hasEndPoint) {
-                count++
-            }
-
-            return count
-        }
+        get() = (if (hasStartPoint) 1 else 0) +
+                (if (hasEndPoint) 1 else 0)
 
     /**
-     * Indica que os dois pontos e a distância
-     * calculada estão disponíveis.
+     * Indica que os dois pontos da dimensão atual
+     * foram posicionados e sua distância foi calculada.
      */
     val hasCompleteMeasurement: Boolean
         get() = hasStartPoint &&
@@ -93,8 +115,8 @@ data class MeasurementUiState(
                 currentMeasurement != null
 
     /**
-     * Define qual âncora deve ser posicionada
-     * na próxima interação.
+     * Próximo slot de âncora necessário para concluir
+     * a dimensão atualmente ativa.
      */
     val nextAnchorSlot: AnchorSlot?
         get() = when {
@@ -104,24 +126,78 @@ data class MeasurementUiState(
         }
 
     /**
-     * Indica que todas as condições necessárias
-     * para posicionar uma âncora foram atendidas.
+     * Eixo que deve ser medido atualmente.
+     *
+     * A sequência padrão é:
+     *
+     * WIDTH -> HEIGHT -> DEPTH
+     *
+     * Retorna null quando os três eixos já foram medidos.
      */
+    val currentDimensionAxis: DimensionAxis?
+        get() = spatialDimensions.nextPendingAxis
+
+    /**
+     * Quantidade de eixos já confirmados.
+     */
+    val measuredDimensionCount: Int
+        get() = spatialDimensions.measuredAxisCount
+
+    /**
+     * Indica que ainda existe uma dimensão pendente.
+     */
+    val hasPendingDimension: Boolean
+        get() = currentDimensionAxis != null
+
+    /**
+     * Permite confirmar a distância atual como medição
+     * do eixo que está ativo.
+     */
+    val canConfirmCurrentDimension: Boolean
+        get() = hasCompleteMeasurement &&
+                currentDimensionAxis != null
+
+    /**
+     * Indica que largura, altura e profundidade
+     * já foram confirmadas.
+     */
+    val hasCompleteSpatialDimensions: Boolean
+        get() = spatialDimensions.isComplete
+
+    /**
+     * Indica que as dimensões estão completas, mas o
+     * volume ainda precisa ser calculado.
+     */
+    val isReadyToCalculateVolume: Boolean
+        get() = hasCompleteSpatialDimensions &&
+                volumeMeasurement == null
+
+    /**
+     * Indica que todo o processo tridimensional foi concluído.
+     */
+    val hasCompleteSpatialMeasurement: Boolean
+        get() = hasCompleteSpatialDimensions &&
+                volumeMeasurement != null
+
     val canPlaceAnchor: Boolean
         get() = isTracking &&
                 isTargetingSurface &&
                 !isAnchorPlacementInProgress &&
+                currentDimensionAxis != null &&
                 nextAnchorSlot != null
 
+    /**
+     * O reset também fica disponível depois que uma ou mais
+     * dimensões já foram confirmadas, mesmo que as âncoras
+     * da dimensão atual estejam vazias.
+     */
     val canResetMeasurement: Boolean
         get() = hasStartPoint ||
                 hasEndPoint ||
-                currentMeasurement != null
+                currentMeasurement != null ||
+                !spatialDimensions.isEmpty ||
+                volumeMeasurement != null
 
-    /**
-     * O indicador de distância só deve aparecer
-     * quando sua posição projetada estiver visível.
-     */
     val shouldShowBadge: Boolean
         get() = currentMeasurement != null &&
                 badgePosition?.isVisible == true
