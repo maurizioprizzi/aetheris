@@ -2,9 +2,11 @@
 
 Registro contínuo da engenharia, decisões arquiteturais (ADRs), modelagem matemática e evolução do ecossistema Aetheris.
 
-## 🔧 [Dia 11] - 2026-08-31: Resolução Explícita do Koin no Nível da Activity
+---
 
-### ✅ Objetivo Concluído
+## 🚀 [Dia 11] - 2026-08-31: Resolução Explícita do Koin no Nível da Activity
+
+### 🎯 Objetivo Concluído
 
 - [x] Refatoração isolada do arquivo `MainActivity.kt` para remover a dependência de um contexto Koin adicional dentro da árvore do Jetpack Compose.
 - [x] Resolução de `MeasurementViewModel` diretamente no ciclo de vida da `ComponentActivity` por meio do delegate `by viewModel()`.
@@ -16,7 +18,7 @@ Registro contínuo da engenharia, decisões arquiteturais (ADRs), modelagem mate
 - [x] Publicação da alteração no commit `5352403` (`fix: resolve Koin dependencies at activity level`).
 - [x] Sincronização bem-sucedida entre `HEAD`, `main` e `origin/main`, com a árvore de trabalho limpa.
 
-### 🎯 Escopo do Dia
+### 🔍 Escopo do Dia
 
 O trabalho foi intencionalmente limitado a um único arquivo de produção:
 
@@ -32,7 +34,7 @@ No Koin context defined in Compose, fallback to default Koin context.
 
 O fallback funcionava corretamente porque o contêiner global já era iniciado em `AetherisApplication`, mas a resolução implícita dentro do Compose gerava uma mensagem desnecessária no Logcat.
 
-### 🧠 Solução Aplicada
+### 🛠️ Solução Aplicada
 
 Antes da refatoração, a `MeasurementScreen` resolvia suas dependências por parâmetros padrão durante a composição:
 
@@ -67,25 +69,25 @@ MeasurementScreen(
 )
 ```
 
-### 🏗️ Impacto Arquitetural
+### 🏛️ Impacto Arquitetural
 
 1. **Ciclo de vida explícito do ViewModel:**
-  - `MeasurementViewModel` permanece associado à `MainActivity`.
-  - Mudanças de configuração continuam utilizando o gerenciamento padrão de ViewModel do Android.
+- `MeasurementViewModel` permanece associado à `MainActivity`.
+- Mudanças de configuração continuam utilizando o gerenciamento padrão de ViewModel do Android.
 
 2. **Singleton da sessão ARCore preservado:**
-  - `ArCoreSessionManager` continua sendo fornecido pela mesma definição `single` do módulo Koin.
-  - Nenhuma segunda sessão ARCore é criada pela refatoração.
+- `ArCoreSessionManager` continua sendo fornecido pela mesma definição `single` do módulo Koin.
+- Nenhuma segunda sessão ARCore é criada pela refatoração.
 
 3. **Composição mais simples:**
-  - A árvore Compose recebe dependências prontas.
-  - A tela permanece testável porque seus parâmetros continuam podendo ser substituídos.
+- A árvore Compose recebe dependências prontas.
+- A tela permanece testável porque seus parâmetros continuam podendo ser substituídos.
 
 4. **Inicialização centralizada:**
-  - `AetherisApplication` continua sendo o único ponto responsável por chamar `startKoin` e registrar `appModule`.
-  - Não existe um segundo contêiner de dependências controlado pela composição.
+- `AetherisApplication` continua sendo o único ponto responsável por chamar `startKoin` e registrar `appModule`.
+- Não existe um segundo contêiner de dependências controlado pela composição.
 
-### 🧪 Validação
+### 📊 Validação
 
 Pipeline utilizado:
 
@@ -112,9 +114,11 @@ Remoto: origin/main
 Status final: working tree clean
 ```
 
-## 🚀 [Dia 10] - 2026-08-30: Medição Tridimensional Sequencial, Volume com Incerteza e Validação em Hardware
+---
 
-### ✅ Objetivos Concluídos
+## 📦 [Dia 10] - 2026-08-30: Medição Tridimensional Sequencial, Volume com Incerteza e Validação em Hardware
+
+### 🎯 Objetivos Concluídos
 
 - [x] Criação do modelo `DimensionAxis` para representar e ordenar os três eixos espaciais: `WIDTH`, `HEIGHT` e `DEPTH`.
 - [x] Implementação de `SpatialDimensions` como estado imutável das medições confirmadas de largura, altura e profundidade.
@@ -140,57 +144,47 @@ Status final: working tree clean
 
 O volume aproximado é calculado como uma caixa delimitadora tridimensional:
 
-\[
-V = w \times h \times d
-\]
+$$V = w \times h \times d$$
 
 onde:
-
-- \(w\) representa a largura;
-- \(h\) representa a altura;
-- \(d\) representa a profundidade.
+- $w$ representa a largura;
+- $h$ representa a altura;
+- $d$ representa a profundidade.
 
 A incerteza volumétrica é propagada considerando as incertezas independentes dos três eixos:
 
-\[
-u_V = \sqrt{
-(h \times d \times u_w)^2 +
-(w \times d \times u_h)^2 +
-(w \times h \times u_d)^2
-}
-\]
+$$u_V = \sqrt{(h \times d \times u_w)^2 + (w \times d \times u_h)^2 + (w \times h \times u_d)^2}$$
 
 Essa formulação evita divisões por zero e continua válida quando uma das dimensões medidas é igual a zero.
 
 O resultado é apresentado como uma estimativa geométrica da caixa delimitadora do objeto, não como seu volume físico exato. Objetos com formas irregulares exigirão segmentação espacial e reconstrução geométrica em etapas futuras.
 
-### 🧠 Decisões de Arquitetura
+### 🏛️ Decisões de Arquitetura
 
 1. **Sequenciamento explícito dos eixos:**
-  - O domínio define a ordem `WIDTH → HEIGHT → DEPTH` sem depender da interface Android.
-  - O próximo eixo é derivado das dimensões ainda ausentes, reduzindo estados inconsistentes.
+- O domínio define a ordem `WIDTH → HEIGHT → DEPTH` sem depender da interface Android.
+- O próximo eixo é derivado das dimensões ainda ausentes, reduzindo estados inconsistentes.
 
 2. **Estado imutável das dimensões:**
-  - Cada confirmação produz uma nova instância de `SpatialDimensions`.
-  - Medições anteriores são preservadas enquanto as âncoras do eixo atual são liberadas.
+- Cada confirmação produz uma nova instância de `SpatialDimensions`.
+- Medições anteriores são preservadas enquanto as âncoras do eixo atual são liberadas.
 
 3. **Separação entre distância e volume:**
-  - `DistanceMeasurement` representa medições lineares.
-  - `VolumeMeasurement` representa o resultado volumétrico e sua incerteza.
-  - `CalculateVolumeUseCase` concentra a regra matemática sem dependências do Android ou ARCore.
+- `DistanceMeasurement` representa medições lineares.
+- `VolumeMeasurement` representa o resultado volumétrico e sua incerteza.
+- `CalculateVolumeUseCase` concentra a regra matemática sem dependências do Android ou ARCore.
 
 4. **Orquestração no ViewModel:**
-  - A interface apenas emite eventos de posicionamento, confirmação, repetição e reset.
-  - O `MeasurementViewModel` controla a transição entre eixos e o cálculo final.
+- A interface apenas emite eventos de posicionamento, confirmação, repetição e reset.
+- O `MeasurementViewModel` controla a transição entre eixos e o cálculo final.
 
 5. **Volume como aproximação AABB:**
-  - O primeiro estágio usa uma caixa delimitadora formada por largura, altura e profundidade.
-  - A decisão mantém o fluxo testável e prepara a arquitetura para futura segmentação de objetos e nuvens de pontos.
+- O primeiro estágio usa uma caixa delimitadora formada por largura, altura e profundidade.
+- A decisão mantém o fluxo testável e prepara a arquitetura para futura segmentação de objetos e nuvens de pontos.
 
-### 🧪 Cobertura e Validação
+### 📊 Cobertura e Validação
 
 Foram adicionados ou ampliados testes para:
-
 - ordem e transição dos valores de `DimensionAxis`;
 - imutabilidade e progressão de `SpatialDimensions`;
 - conversão entre metros cúbicos e litros;
@@ -222,7 +216,6 @@ BUILD SUCCESSFUL
 ### 📱 Validação Inicial no Dispositivo
 
 O APK foi executado em um aparelho físico com ARCore. A sessão:
-
 - iniciou corretamente;
 - carregou todas as dependências do Koin;
 - processou aproximadamente 1.216 frames da câmera;
@@ -231,7 +224,6 @@ O APK foi executado em um aparelho físico com ARCore. A sessão:
 - não apresentou exceções Kotlin relacionadas às novas dimensões ou ao cálculo de volume.
 
 O teste funcional completo não pôde ser concluído devido à baixa luminosidade do ambiente. O ARCore registrou dificuldade para encontrar pontos visuais consistentes e refinar planos físicos:
-
 - 246 ocorrências internas de refinamento de plano sem inliers suficientes;
 - 5 ocorrências internas de `ComputeDisparity` no serviço nativo do ARCore;
 - uma ocorrência de extração de características acima do tempo esperado;
@@ -239,47 +231,38 @@ O teste funcional completo não pôde ser concluído devido à baixa luminosidad
 
 Apesar dessas mensagens nativas, não houve encerramento anormal. A validação funcional será repetida em ambiente bem iluminado e com superfícies texturizadas antes de novas alterações no pipeline de medição.
 
-### 🧩 Diagnóstico Técnico
+### 🛠️ Diagnóstico Técnico
 
 1. **Baixa luminosidade e poucos marcos visuais:**
-  - *Efeito:* dificuldade para estabilizar planos e habilitar a mira de posicionamento.
-  - *Ação definida:* repetir o teste com iluminação uniforme, movimento lento da câmera e superfícies com textura.
+- *Efeito:* dificuldade para estabilizar planos e habilitar a mira de posicionamento.
+- *Ação definida:* repetir o teste com iluminação uniforme, movimento lento da câmera e superfícies com textura.
 
 2. **Mensagens internas de `ComputeDisparity`:**
-  - *Observação:* continuaram presentes no Google Play Services for AR mesmo com `DepthMode.DISABLED` na configuração pública da sessão.
-  - *Decisão:* manter o fallback sem Depth API e não alterar o domínio ou o ViewModel com base apenas em mensagens internas do serviço nativo.
+- *Observação:* continuaram presentes no Google Play Services for AR mesmo com `DepthMode.DISABLED` na configuração pública da sessão.
+- *Decisão:* manter o fallback sem Depth API e não alterar o domínio ou o ViewModel com base apenas em mensagens internas do serviço nativo.
 
 3. **Aviso de contexto Compose do Koin:**
-  - *Efeito:* o Koin utilizou corretamente o contexto global iniciado pelo `AetherisApplication`.
-  - *Prioridade:* baixa; não afetou a resolução das dependências nem o funcionamento do aplicativo.
+- *Efeito:* o Koin utilizou corretamente o contexto global iniciado pelo `AetherisApplication`.
+- *Prioridade:* baixa; não afetou a resolução das dependências nem o funcionamento do aplicativo.
 
 4. **Encerramento OpenGL/ARCore:**
-  - *Observação:* ocorreu uma mensagem isolada de chamada OpenGL sem contexto corrente durante a desmontagem.
-  - *Resultado:* a sessão retornou `OK` e o processo encerrou normalmente.
-  - *Ação definida:* repetir ciclos de abrir, minimizar, restaurar e fechar o aplicativo para verificar recorrência.
+- *Observação:* ocorreu uma mensagem isolada de chamada OpenGL sem contexto corrente durante a desmontagem.
+- *Resultado:* a sessão retornou `OK` e o processo encerrou normalmente.
+- *Ação definida:* repetir ciclos de abrir, minimizar, restaurar e fechar o aplicativo para verificar recorrência.
 
-### 🧭 Decisão de Arquitetura (ADR)
+### 🏛️ Decisão de Arquitetura (ADR)
 
 - **ADR-015: Sequential Axis Capture and Uncertainty-Aware AABB Volume**
   - **Contexto:** A medição de apenas uma distância não representa as dimensões espaciais necessárias para estimar volume e, futuramente, massa por densidade.
   - **Decisão:** Capturar largura, altura e profundidade como medições lineares independentes, associar cada uma a um eixo explícito, liberar as âncoras entre etapas e calcular uma estimativa volumétrica AABB com propagação das incertezas.
   - **Consequência:** O domínio permanece puro e testável, enquanto a apresentação ganha um fluxo progressivo capaz de evoluir posteriormente para segmentação automática, reconstrução 3D e modelos físicos específicos por material.
 
-### 📌 Próximos Passos Definidos para o Dia 11
-
-- [ ] Repetir o fluxo completo em um ambiente bem iluminado e com superfícies texturizadas.
-- [ ] Confirmar visualmente a sequência largura, altura, profundidade e volume no dispositivo.
-- [ ] Verificar a estabilidade dos pontos após cada confirmação e movimentação da câmera.
-- [ ] Repetir ciclos de pausa e retomada para avaliar o aviso isolado do contexto OpenGL.
-- [ ] Investigar a origem do aviso do contexto Compose/Koin sem alterar o funcionamento estável atual.
-- [ ] Melhorar as orientações visuais para baixa iluminação e rastreamento insuficiente, caso o novo teste confirme essa necessidade.
-- [ ] Somente depois da validação física, iniciar a modelagem de densidade de materiais e estimativa de massa para objetos.
-
 ---
 
-## 🚀 [Dia 09] - 2026-08-29: Hardening do Pipeline ARCore, Segurança Numérica e Regressão Completa
+## 🛡️ [Dia 09] - 2026-08-29: Hardening do Pipeline ARCore, Segurança Numérica e Regressão Completa
 
 ### 🎯 Objetivos Concluídos
+
 - [x] Migração definitiva do estado espacial legado para `SpatialFrameData`, com atualização do contrato `SpatialSensorRepository`, dos repositórios falsos e dos testes do `MeasurementViewModel`.
 - [x] Correção da suíte de testes do ARCore, incluindo os mocks de `Frame.camera`, `TrackingState`, `Point.orientationMode`, `Plane.isPoseInPolygon` e criação de âncoras.
 - [x] Adequação do ciclo de vida de `PointCloud` ao contrato `AutoCloseable`, garantindo `pointCloud.close()` por meio de `use`, inclusive quando a leitura do buffer falha.
@@ -296,6 +279,7 @@ Apesar dessas mensagens nativas, não houve encerramento anormal. A validação 
 - [x] Estabelecimento de uma baseline verde com **32/32 testes unitários aprovados** por `testDebugUnitTest`.
 
 ### 🛠️ Desafios de Engenharia & Diagnóstico
+
 1. **Evolução incompatível do contrato espacial:**
 - *Causa:* Os testes ainda utilizavam `SpatialData`, enquanto a produção já expunha `StateFlow<SpatialFrameData>` e novos métodos de hit test e ancoragem.
 - *Solução:* Atualização dos doubles de teste, assinaturas e propriedades observadas, mantendo `normalizedX` e `normalizedY` compatíveis com a interface.
@@ -313,6 +297,7 @@ Apesar dessas mensagens nativas, não houve encerramento anormal. A validação 
 - *Solução:* Rotinas idempotentes de destruição, restauração de bindings em blocos `finally`, validação de handles e encapsulamento de `Anchor.detach()`.
 
 ### 📊 Métricas de Validação
+
 - **Regressão inicial:** 18 falhas em 32 testes após a evolução dos contratos.
 - **Primeira estabilização:** redução para 13 falhas, concentradas nos mocks ARCore e no repositório.
 - **Segunda estabilização:** redução para 3 falhas, todas no `SpatialSensorRepositoryTest`.
@@ -320,6 +305,7 @@ Apesar dessas mensagens nativas, não houve encerramento anormal. A validação 
 - **Comando de validação:** `./gradlew testDebugUnitTest --no-configuration-cache`.
 
 ### 🏛️ Decisões de Arquitetura (ADR)
+
 - **ADR-014: Defensive ARCore/OpenGL Resource Management and Depth Fallback**
   - **Contexto:** O pipeline combina objetos nativos de vida curta (`Frame`, `PointCloud`, `Anchor`), recursos de GPU dependentes do contexto EGL e funcionalidades opcionais que podem falhar mesmo quando declaradas como suportadas pelo hardware.
   - **Decisão:** Tratar indisponibilidades transitórias nas bordas da camada `data`, garantir liberação determinística dos recursos, manter o domínio livre de dependências Android e permitir fallback explícito da Depth API sem interromper planos, hit tests e ancoragem.
@@ -329,6 +315,7 @@ Apesar dessas mensagens nativas, não houve encerramento anormal. A validação 
 ## 🚀 [Dia 08] - 2026-08-29: Projeção World-to-Screen, Badge Flutuante em Compose e Ancoragem Anti-Drift (ARCore Anchor)
 
 ### 🎯 Objetivos Concluídos
+
 - [x] Implementação do caso de uso `ProjectWorldToScreenUseCase` realizando a transformação projetiva completa ($3\text{D} \to 2\text{D}$): coordenadas de mundo $\to$ clip space ($M_{proj} \times M_{view}$) $\to$ coordenadas normalizadas de dispositivo (NDC) $\to$ espaço de tela em pixels.
 - [x] Adição de guarda de *Frustum Clipping* ($w_c \le 0$) para ocultar instantaneamente o badge quando o vetor de medição estiver atrás do plano da câmera, evitando divisão por zero e artefatos de projeção invertida.
 - [x] Renderização da etiqueta flutuante reativa (`FloatingMeasurementBadge`) em Jetpack Compose, acompanhando o ponto médio do vetor espacial com leitura de distância e incerteza ($\pm\sigma$) em tempo real.
@@ -340,6 +327,7 @@ Apesar dessas mensagens nativas, não houve encerramento anormal. A validação 
 - [x] Registro da decisão arquitetural formal no `ADR-013`.
 
 ### 🛠️ Desafios de Engenharia & Diagnóstico em Hardware
+
 1. **Class Shadowing no Source Set de Testes:**
 - *Causa:* O arquivo `ArCoreHitTestProcessorTest.kt` continha uma declaração acidental de `class ArCoreHitTestProcessor` no diretório `src/test/`, mascarando a classe real de produção em `src/main/` e impedindo a resolução de novos métodos durante a compilação de testes unitários.
 - *Solução:* Substituição do stub por uma suíte de testes unitários legítima cobrindo criação de âncoras, hit-testing de planos e validação de superfícies.
@@ -351,6 +339,7 @@ Apesar dessas mensagens nativas, não houve encerramento anormal. A validação 
 - *Solução:* Retorno determinístico de `null` no caso de uso caso $w_c \le 0.001\text{f}$, instruindo o Compose a não desenhar o badge fora do cone de visão da câmera.
 
 ### 📊 Métricas de Validação no Dispositivo (Motorola Edge 50 Fusion)
+
 - **Convergência VIO (Visual-Inertial Odometry):** Inicialização recorde atingindo `VIO_TRACKING` em apenas **398,05 ms** (redução de 9,7% em relação aos 441 ms do Dia 07).
 - **Consistência Geométrica do SLAM:** Otimização de mapa (`MAP SOLVE: USER_SUCCESS`) reduzindo o custo de $20.349$ para $171$ em 4 iterações, com 26 keyframes e 212 marcos mapeados.
 - **Taxa de Inliers Visuais:** **93,1% de inliers consistentes** (94 pontos rastreados simultaneamente).
@@ -358,6 +347,7 @@ Apesar dessas mensagens nativas, não houve encerramento anormal. A validação 
 - **Performance de Testes:** 25 testes unitários executados em ~2s na JVM.
 
 ### 🏛️ Decisões de Arquitetura (ADR)
+
 - **ADR-013: Native ARCore Anchor Tracking & Pose Graph Correction**
   - **Contexto:** Necessidade de manter pontos de medição milimetricamente fixos em relação aos objetos reais durante movimentações longas no espaço.
   - **Decisão:** Associação dos pontos A e B a nós nativos `Anchor` do ARCore, propagação frame a frame das coordenadas corrigidas pelo grafo de poses via `StateFlow` e invocação determinística de `anchor.detach()` para prevenção de vazamento de memória nativa C++.
@@ -367,6 +357,7 @@ Apesar dessas mensagens nativas, não houve encerramento anormal. A validação 
 ## 🎨 [Dia 07] - 2026-08-28: Pipeline Gráfico OpenGL ES 3.0, Estabilização EGL e Compatibilidade 16 KB
 
 ### 🎯 Objetivos Concluídos
+
 - [x] Criação do `BackgroundRenderer` com shaders GLSL ES 3.0 e suporte a `GL_TEXTURE_EXTERNAL_OES` para projeção com *zero-copy* do feed de vídeo da câmera.
 - [x] Implementação do `SpatialLineRenderer` em OpenGL ES 3.0 para traçado dos nós de ancoragem (`GL_POINTS`) e do vetor de medição (`GL_LINES`) no espaço tridimensional.
 - [x] Multiplicação matricial Model-View-Projection ($M_{clip} = M_{proj} \times M_{view} \times M_{model}$) em tempo real alimentada pelas matrizes da câmera ARCore.
@@ -377,6 +368,7 @@ Apesar dessas mensagens nativas, não houve encerramento anormal. A validação 
 - [x] Registro da decisão arquitetural no `ADR-012`.
 
 ### 🛠️ Desafios de Engenharia & Diagnóstico em Hardware
+
 1. **Condição de Corrida no Ciclo de Vida do ARCore (`AR_ERROR_SESSION_PAUSED`):**
 - *Causa:* A `GLThread` chamava `session.update()` antes da Main Thread executar `session.resume()`, e o encerramento concorrente no `onPause` causava falha de precondição no scheduler do MediaPipe.
 - *Solução:* Centralização estrita do ciclo de vida na Main Thread via flag `@Volatile isRunning` e sincronização determinística no `DisposableEffect` (no pause: paralisa a `GLSurfaceView` antes da `Session`; no resume: retoma a `Session` antes da `GLSurfaceView`).
@@ -388,12 +380,14 @@ Apesar dessas mensagens nativas, não houve encerramento anormal. A validação 
 - *Solução:* Vinculação atômica única do ID de textura OES, amostragem obrigatória com `GL_CLAMP_TO_EDGE` e transformação contínua de coordenadas normalizadas no `BackgroundRenderer`.
 
 ### 📊 Métricas de Validação no Dispositivo (Motorola Edge 50 Fusion)
+
 - **Taxa de Quadros:** 60 FPS contínuos e sustentados ao longo de mais de 850 frames de vídeo renderizados.
 - **Convergência VIO (Visual-Inertial Odometry):** Transição para `VIO_TRACKING` em apenas **441 ms**.
 - **Mapeamento Espacial 3D:** Construção de mapa ADF contendo 26 keyframes, 252 landmarks físicos e taxa de inliers visuais de **94,6%**.
 - **Performance de Testes:** Suíte completa de testes da JVM executada em ~4s.
 
 ### 🏛️ Decisões de Arquitetura (ADR)
+
 - **ADR-012: Zero-Copy OES Camera Texture and OpenGL ES 3.0 Spatial Geometry Pipeline**
   - **Contexto:** Necessidade de renderização em alta frequência (60 FPS) do vídeo da câmera e da geometria métrica sem alocações dinâmicas na GPU/CPU.
   - **Decisão:** Adoção de textura externa OES via GLSL ES 3.0, prealocação estática de buffers/matrizes e consumo síncrono do estado do Compose pela thread gráfica EGL.
@@ -403,6 +397,7 @@ Apesar dessas mensagens nativas, não houve encerramento anormal. A validação 
 ## 🎯 [Dia 06] - 2026-08-27: Spatial Raycasting, Polygon Gating e Testes Unitários de Colisão
 
 ### 🎯 Objetivos Concluídos
+
 - [x] Criação do processador de baixo nível `ArCoreHitTestProcessor` para projeção de raios ópticos a partir de coordenadas normalizadas de tela $[0.0, 1.0]$.
 - [x] Implementação de filtragem estrita por polígono convexo (`isPoseInPolygon`) para eliminar extrapolações de planos infinitos e falsos positivos no vácuo.
 - [x] Estabelecimento de fallback determinístico para pontos ToF / Depth API (`Point`) com rastreamento ativo.
@@ -413,6 +408,7 @@ Apesar dessas mensagens nativas, não houve encerramento anormal. A validação 
 - [x] Validação integral da suíte de testes unitários (`./gradlew testDebugUnitTest`) executada em 4s com cache.
 
 ### 🏛️ Decisões de Arquitetura (ADR)
+
 - **ADR-011: Spatial Raycasting and Convex Polygon Gating**
   - **Contexto:** A busca heurística 2D anterior gerava imprecisão métrica cumulativa e não garantia que os pontos ancorados pertencessem a superfícies físicas coplanares ou estáveis.
   - **Decisão:** Adoção do `Frame.hitTest` nativo com priorização de `Plane` dentro do polígono de suporte (`isPoseInPolygon`), fallback para pontos de profundidade ToF e conversão direta da `Pose` do ARCore para a entidade imutável de domínio `Point3D(x, y, z)` sem contaminar a camada `domain` com o SDK Android.
@@ -422,6 +418,7 @@ Apesar dessas mensagens nativas, não houve encerramento anormal. A validação 
 ## 📱 [Dia 05] - 2026-08-26: Hardware Óptico, Ciclo de Vida ARCore e Testes Unitários de Apresentação
 
 ### 🎯 Objetivos Concluídos
+
 - [x] Implementação do gerenciador declarativo de permissões em tempo de execução `CameraPermissionHandler` no Jetpack Compose.
 - [x] Criação do `ArCoreSessionManager` para controle do ciclo de vida da sessão AR, ativação do sensor de profundidade (`DepthMode.AUTOMATIC`) e liberação de recursos de memória.
 - [x] Construção do componente visual `ArCameraFeed` conectando `GLSurfaceView` (OpenGL ES 3.0) ao ciclo de vida do Compose via `DisposableEffect` e `LifecycleEventObserver`.
@@ -432,6 +429,7 @@ Apesar dessas mensagens nativas, não houve encerramento anormal. A validação 
 - [x] Validação integral da suíte de testes unitários e compilação do APK de Debug (`./gradlew testDebugUnitTest assembleDebug`).
 
 ### 🏛️ Decisões de Arquitetura (ADR)
+
 - **ADR-009: Gerenciamento Declarativo de Permissões Ópticas no Compose**
   - **Contexto:** O ARCore exige permissão de câmera em tempo de execução. O fluxo tradicional baseado em callbacks imperativos de `Activity` acopla a camada de apresentação ao framework e dificulta a modularização.
   - **Decisão:** Criação do componente `CameraPermissionHandler` utilizando `rememberLauncherForActivityResult`, garantindo tela de bloqueio e solicitação reativa sob demanda diretamente na árvore do Compose.
@@ -444,6 +442,7 @@ Apesar dessas mensagens nativas, não houve encerramento anormal. A validação 
 ## 📐 [Dia 04] - 2026-08-25: Processamento de Buffers AR e Interface HUD em Jetpack Compose
 
 ### 🎯 Objetivos Concluídos
+
 - [x] Criação do extrator de baixo nível `ArCoreFrameProcessor` com filtro de confiança para conversão de `FloatBuffer` em `List<Point3D>`.
 - [x] Modelagem do estado de interface `MeasurementUiState` e implementação do `MeasurementViewModel` com Unidirectional Data Flow (UDF) sobre `StateFlow`.
 - [x] Construção da tela de metrologia espacial `MeasurementScreen` em Jetpack Compose com design estilo HUD científico:
@@ -455,6 +454,7 @@ Apesar dessas mensagens nativas, não houve encerramento anormal. A validação 
 - [x] Validação completa de testes unitários na JVM e compilação bem-sucedida do APK de Debug (`./gradlew assembleDebug`).
 
 ### 🏛️ Decisões de Arquitetura (ADR)
+
 - **ADR-007: Filtragem e Descarte de Ruído em Buffers Brutos (PointCloud)**
   - **Contexto:** Sensores ópticos e de tempo de voo (ToF) geram dispersão de dados e pontos espírios em superfícies reflexivas ou de baixa iluminação.
   - **Decisão:** O `ArCoreFrameProcessor` aplica um limiar de confiança configurável ($\ge 30\%$) diretamente na leitura do `FloatBuffer`, descartando artefatos antes de criar instâncias imutáveis de `Point3D` no domínio.
@@ -467,6 +467,7 @@ Apesar dessas mensagens nativas, não houve encerramento anormal. A validação 
 ## 📡 [Dia 03] - 2026-08-24: Contrato de Repositório de Sensores e Telemetria Reativa
 
 ### 🎯 Objetivos Concluídos
+
 - [x] Criação dos modelos de telemetria espacial (`TrackingStatus`, `SpatialFrameData`).
 - [x] Definição do contrato de repositório `SpatialSensorRepository` na camada `domain`.
 - [x] Implementação de `SpatialSensorRepositoryImpl` com `StateFlow` na camada `data`.
@@ -475,6 +476,7 @@ Apesar dessas mensagens nativas, não houve encerramento anormal. A validação 
 - [x] Configuração da pipeline de integração contínua (CI) com GitHub Actions (`.github/workflows/android.yml`).
 
 ### 🏛️ Decisões de Arquitetura (ADR)
+
 - **ADR-005: Desacoplamento do Pipeline de Sensores via Repositório Reativo**
   - **Contexto:** O hardware emite frames espaciais em 30 a 60 FPS. A camada de domínio não deve ser bloqueada pela taxa de quadros do sensor.
   - **Decisão:** Uso de `StateFlow<SpatialFrameData>` com atualizações atômicas (`.update { ... }`).
@@ -487,12 +489,14 @@ Apesar dessas mensagens nativas, não houve encerramento anormal. A validação 
 ## 🧮 [Dia 02] - 2026-08-23: Domínio Matemático Puro e Modelagem Física
 
 ### 🎯 Objetivos Concluídos
+
 - [x] Criação das entidades imutáveis: `Point3D`, `BoundingBox3D`, `DistanceMeasurement`, `MassEstimate`.
 - [x] Implementação dos casos de uso: `CalculateDistanceUseCase` e `EstimateSpatialDimensionsUseCase`.
 - [x] Implementação da propagação dinâmica de incerteza metrológica ($\pm\sigma$).
 - [x] Cobertura de 100% em testes unitários com JUnit 4 e Google Truth na JVM.
 
 ### 🏛️ Decisões de Arquitetura (ADR)
+
 - **ADR-003: Isolamento do Domínio Matemático em Kotlin Puro**
   - **Decisão:** Zero dependências do Android SDK na camada `domain` para garantir portabilidade e execução instantânea de testes unitários.
 - **ADR-004: Incerteza Dinâmica como Entidade de Primeira Classe**
@@ -503,12 +507,14 @@ Apesar dessas mensagens nativas, não houve encerramento anormal. A validação 
 ## 🏁 [Dia 01] - 2026-08-22: Fundação, Setup e Governança
 
 ### 🎯 Objetivos Concluídos
+
 - [x] Configuração do projeto com Kotlin 2.x, Jetpack Compose (Material 3), Gradle Kotlin DSL e Version Catalogs (`libs.versions.toml`).
 - [x] Estruturação da Clean Architecture (`domain`, `data`, `presentation`).
 - [x] Injeção de dependência com Koin.
 - [x] Publicação do repositório no GitHub com licença Apache 2.0.
 
 ### 🏛️ Decisões de Arquitetura (ADR)
+
 - **ADR-001: Adoção do Koin em vez de Hilt/Dagger**
   - **Decisão:** Injeção de dependência 100% Kotlin puro sem geração pesada de código ou problemas com novas versões do compilador K2.
 - **ADR-002: Licenciamento Apache 2.0 e Estratégia Open Core**
@@ -516,7 +522,7 @@ Apesar dessas mensagens nativas, não houve encerramento anormal. A validação 
 
 ---
 
-### 📌 Próximos Passos Definidos para o Dia 12
+## 🔮 Próximos Passos Definidos para o Dia 12
 
 - [ ] Instalar novamente o APK em um aparelho físico.
 - [ ] Confirmar no Logcat a ausência do aviso de fallback do contexto Compose/Koin.
