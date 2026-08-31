@@ -2,6 +2,116 @@
 
 Registro contínuo da engenharia, decisões arquiteturais (ADRs), modelagem matemática e evolução do ecossistema Aetheris.
 
+## 🔧 [Dia 11] - 2026-08-31: Resolução Explícita do Koin no Nível da Activity
+
+### ✅ Objetivo Concluído
+
+- [x] Refatoração isolada do arquivo `MainActivity.kt` para remover a dependência de um contexto Koin adicional dentro da árvore do Jetpack Compose.
+- [x] Resolução de `MeasurementViewModel` diretamente no ciclo de vida da `ComponentActivity` por meio do delegate `by viewModel()`.
+- [x] Resolução do singleton `ArCoreSessionManager` diretamente na Activity por meio do delegate `by inject()`.
+- [x] Passagem explícita das dependências para `MeasurementScreen`.
+- [x] Remoção do wrapper `KoinAndroidContext` da composição principal.
+- [x] Preservação da inicialização global do Koin realizada pelo `AetherisApplication`.
+- [x] Validação completa dos testes unitários, Android Lint e montagem do APK de Debug.
+- [x] Publicação da alteração no commit `5352403` (`fix: resolve Koin dependencies at activity level`).
+- [x] Sincronização bem-sucedida entre `HEAD`, `main` e `origin/main`, com a árvore de trabalho limpa.
+
+### 🎯 Escopo do Dia
+
+O trabalho foi intencionalmente limitado a um único arquivo de produção:
+
+```text
+app/src/main/java/org/aetheris/app/MainActivity.kt
+```
+
+A alteração teve como objetivo tratar o aviso observado durante a execução no dispositivo:
+
+```text
+No Koin context defined in Compose, fallback to default Koin context.
+```
+
+O fallback funcionava corretamente porque o contêiner global já era iniciado em `AetherisApplication`, mas a resolução implícita dentro do Compose gerava uma mensagem desnecessária no Logcat.
+
+### 🧠 Solução Aplicada
+
+Antes da refatoração, a `MeasurementScreen` resolvia suas dependências por parâmetros padrão durante a composição:
+
+```kotlin
+MeasurementScreen()
+```
+
+A `MainActivity` também envolvia a interface com um contexto Compose adicional:
+
+```kotlin
+KoinAndroidContext {
+    MeasurementScreen()
+}
+```
+
+Depois da refatoração, a Activity passou a possuir explicitamente as dependências associadas ao seu ciclo de vida:
+
+```kotlin
+private val measurementViewModel:
+    MeasurementViewModel by viewModel()
+
+private val arCoreSessionManager:
+    ArCoreSessionManager by inject()
+```
+
+Essas instâncias são fornecidas diretamente à tela:
+
+```kotlin
+MeasurementScreen(
+    viewModel = measurementViewModel,
+    sessionManager = arCoreSessionManager
+)
+```
+
+### 🏗️ Impacto Arquitetural
+
+1. **Ciclo de vida explícito do ViewModel:**
+  - `MeasurementViewModel` permanece associado à `MainActivity`.
+  - Mudanças de configuração continuam utilizando o gerenciamento padrão de ViewModel do Android.
+
+2. **Singleton da sessão ARCore preservado:**
+  - `ArCoreSessionManager` continua sendo fornecido pela mesma definição `single` do módulo Koin.
+  - Nenhuma segunda sessão ARCore é criada pela refatoração.
+
+3. **Composição mais simples:**
+  - A árvore Compose recebe dependências prontas.
+  - A tela permanece testável porque seus parâmetros continuam podendo ser substituídos.
+
+4. **Inicialização centralizada:**
+  - `AetherisApplication` continua sendo o único ponto responsável por chamar `startKoin` e registrar `appModule`.
+  - Não existe um segundo contêiner de dependências controlado pela composição.
+
+### 🧪 Validação
+
+Pipeline utilizado:
+
+```bash
+./gradlew testDebugUnitTest lintDebug assembleDebug \
+  --no-configuration-cache
+```
+
+Resultado:
+
+```text
+BUILD SUCCESSFUL
+```
+
+A alteração não modificou regras de domínio, cálculos métricos, contratos de repositório, renderização OpenGL ou estado de medição. Por isso, a suíte existente foi utilizada como teste de regressão integral.
+
+### 📦 Controle de Versão
+
+```text
+Commit: 5352403
+Mensagem: fix: resolve Koin dependencies at activity level
+Branch: main
+Remoto: origin/main
+Status final: working tree clean
+```
+
 ## 🚀 [Dia 10] - 2026-08-30: Medição Tridimensional Sequencial, Volume com Incerteza e Validação em Hardware
 
 ### ✅ Objetivos Concluídos
@@ -406,9 +516,11 @@ Apesar dessas mensagens nativas, não houve encerramento anormal. A validação 
 
 ---
 
-## 🔮 Próximos Passos (Dia 10)
-- [ ] Implementação de medição multiponto e sequenciamento de polilinhas 3D (`Polyline3D`).
-- [ ] Cálculo da área de superfícies coplanares poligonais com projeção no plano dominante.
-- [ ] Renderização de malha poligonal translúcida com `GL_TRIANGLE_FAN` no OpenGL ES 3.0.
-- [ ] Exportação de telemetria espacial e relatórios metrológicos em JSON e CSV.
-- [ ] Execução final de `testDebugUnitTest`, `assembleDebug` e validação em dispositivo após o hardening.
+### 📌 Próximos Passos Definidos para o Dia 12
+
+- [ ] Instalar novamente o APK em um aparelho físico.
+- [ ] Confirmar no Logcat a ausência do aviso de fallback do contexto Compose/Koin.
+- [ ] Repetir o teste em ambiente bem iluminado e com superfícies texturizadas.
+- [ ] Validar visualmente a sequência largura, altura, profundidade e volume.
+- [ ] Verificar ciclos de pausa, retomada e encerramento da sessão ARCore.
+- [ ] Somente após a validação física, escolher o próximo arquivo de domínio relacionado à estimativa de massa por densidade.
