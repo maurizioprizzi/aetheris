@@ -4,6 +4,65 @@ Registro contínuo da engenharia, decisões arquiteturais (ADRs), modelagem mate
 
 ---
 
+## 🚀 [Dia 12] - 2026-09-01: Estimativa de Massa por Densidade, Threading OpenGL e Validação Ponta a Ponta em Hardware
+
+### 🎯 Objetivos Concluídos
+
+- [x] Criação do catálogo de materiais e densidades físicas (`MaterialDensity`) abrangendo sólidos comuns (madeira, alumínio, aço, vidro, concreto, plásticos).
+- [x] Modelagem da entidade `MassEstimate` contendo massa calculada em quilogramas e gramas, margem de incerteza propagada ($\pm\sigma$) e incerteza relativa percentual.
+- [x] Implementação do caso de uso `EstimateMassUseCase` integrando volume tridimensional e densidade volumétrica com propagação rigorosa de incerteza combinada.
+- [x] Diagnóstico e resolução de contenção de concorrência e race condition entre a Main Thread/Coroutines e a `GLThread` (render thread) do ARCore.
+- [x] Implementação de fila de operações orientada ao frame (`Frame-Affine Placement Queue`) em `SpatialSensorRepositoryImpl`, executando raycasting e criação de âncoras sincronizadas com o frame de renderização mais recente.
+- [x] Habilitação de `Instant Placement` (`Config.InstantPlacementMode.LOCAL_Y_UP`) como fallback determinístico para posicionamento imediato de pontos em superfícies com baixa densidade de planos.
+- [x] Implementação de throttling na sondagem de superfícies (`hasValidSurfaceAt`) fixado em 5 Hz (200 ms), reduzindo substancialmente o overhead de CPU e consumo de bateria.
+- [x] Inclusão de telemetria diagnóstica isolada para builds de Debug sem impactar a performance em Release.
+- [x] Atualização completa da suíte de testes unitários (`SpatialSensorRepositoryTest`, `MeasurementViewModelTest`, etc.) totalizando **128/128 testes unitários aprovados na JVM**.
+- [x] Validação funcional ponta a ponta em hardware real (Motorola Edge 50 Fusion): toque na tela $\to$ ancoragem espacial $\to$ medição linear $\to$ cálculo volumétrico $\to$ estimativa de massa.
+- [x] Registro formal da decisão arquitetural no `ADR-016`.
+- [x] Publicação das alterações nos commits `a92b40b`, `a72eed1` e `b18502c`.
+
+### 📐 Modelagem Matemática
+
+A estimativa de massa é obtida a partir do produto do volume tridimensional $V$ pela densidade volumétrica do material $\rho$:
+
+$$M = V \times \rho$$
+
+onde:
+- $V$ representa o volume estimado da caixa delimitadora (AABB) em $\text{m}^3$;
+- $\rho$ representa a densidade do material em $\text{kg/m}^3$.
+
+A propagação da incerteza combinada $u_M$ considera a incerteza volumétrica $u_V$ e a incerteza intrínseca da densidade do material $u_\rho$:
+
+$$u_M = \sqrt{(\rho \times u_V)^2 + (V \times u_\rho)^2}$$
+
+Essa modelagem assegura que a incerteza final reflita tanto a precisão do sensor espacial quanto a tolerância na composição física do material selecionado.
+
+### 🛠️ Desafios de Engenharia & Diagnóstico em Hardware
+
+1. **Concorrência entre Coroutines e a GLThread do ARCore:**
+- *Causa:* Chamadas assíncronas para `createAnchor` ou `performHitTest` executadas a partir de dispatchers de Coroutine tentavam acessar o estado nativo da `Session` enquanto a thread OpenGL estava no meio do ciclo de renderização de frame, gerando exceções nativas transitórias e falha silenciosa na fixação de pontos.
+- *Solução:* Criação de uma fila de comandos atômica (`ConcurrentLinkedQueue`) no repositório, consumida de forma síncrona dentro de `onFrameUpdate(frame)` na `GLThread`, garantindo que todas as interações com o ARCore ocorram estritamente no frame ativo.
+2. **Superfícies Pouco Texturizadas e Falha de Planos Convencionais:**
+- *Causa:* Ambientes internos homogêneos demoravam vários segundos para consolidar planos poligonais, bloqueando o usuário de fixar o Ponto A ou B.
+- *Solução:* Ativação do modo `Instant Placement` com fallback em cascata: plano delimitado $\to$ ponto ToF/Depth $\to$ ponto Instant Placement (`InstantPlacementPoint`).
+3. **Sobrecarga de Raycasting no Retículo (Crosshair):**
+- *Causa:* A sondagem de superfície para feedback cromático do retículo executava a 60 FPS, consumindo ciclos desnecessários de CPU.
+- *Solução:* Aplicação de throttling por timestamp garantindo intervalo mínimo de 200 ms (5 Hz) entre as verificações de superfície.
+
+### 📊 Métricas de Validação
+
+- **Suíte de Testes Unitários:** **128 testes executados, 0 falhas – BUILD SUCCESSFUL**.
+- **Comando de validação:** `./gradlew testDebugUnitTest lintDebug assembleDebug --no-configuration-cache`.
+- **Validação em Hardware:** Posicionamento de âncoras verificado com taxa de sucesso de 100% em múltiplos testes de iluminação e distância no Motorola Edge 50 Fusion.
+
+### 🏛️ Decisões de Arquitetura (ADR)
+
+- **ADR-016: Frame-Affine Placement Queue & Instant Placement Fallback**
+  - **Contexto:** A criação de âncoras e o raycasting requerem sincronia absoluta com o frame ativo na thread gráfica, e a dependência exclusiva de planos poligonais tornava a inicialização lenta em superfícies lisas.
+  - **Decisão:** Enfileirar requisições de ancoragem para execução direta no frame ativo da `GLThread` e habilitar o `Instant Placement` como fallback imediato, mantendo o domínio desacoplado via contratos reativos.
+
+---
+
 ## 🚀 [Dia 11] - 2026-08-31: Resolução Explícita do Koin no Nível da Activity
 
 ### 🎯 Objetivo Concluído
@@ -236,15 +295,12 @@ Apesar dessas mensagens nativas, não houve encerramento anormal. A validação 
 1. **Baixa luminosidade e poucos marcos visuais:**
 - *Efeito:* dificuldade para estabilizar planos e habilitar a mira de posicionamento.
 - *Ação definida:* repetir o teste com iluminação uniforme, movimento lento da câmera e superfícies com textura.
-
 2. **Mensagens internas de `ComputeDisparity`:**
 - *Observação:* continuaram presentes no Google Play Services for AR mesmo com `DepthMode.DISABLED` na configuração pública da sessão.
 - *Decisão:* manter o fallback sem Depth API e não alterar o domínio ou o ViewModel com base apenas em mensagens internas do serviço nativo.
-
 3. **Aviso de contexto Compose do Koin:**
 - *Efeito:* o Koin utilizou corretamente o contexto global iniciado pelo `AetherisApplication`.
 - *Prioridade:* baixa; não afetou a resolução das dependências nem o funcionamento do aplicativo.
-
 4. **Encerramento OpenGL/ARCore:**
 - *Observação:* ocorreu uma mensagem isolada de chamada OpenGL sem contexto corrente durante a desmontagem.
 - *Resultado:* a sessão retornou `OK` e o processo encerrou normalmente.
@@ -522,11 +578,10 @@ Apesar dessas mensagens nativas, não houve encerramento anormal. A validação 
 
 ---
 
-## 🔮 Próximos Passos Definidos para o Dia 12
+## 🔮 Próximos Passos Definidos para o Dia 13
 
-- [ ] Instalar novamente o APK em um aparelho físico.
-- [ ] Confirmar no Logcat a ausência do aviso de fallback do contexto Compose/Koin.
-- [ ] Repetir o teste em ambiente bem iluminado e com superfícies texturizadas.
-- [ ] Validar visualmente a sequência largura, altura, profundidade e volume.
-- [ ] Verificar ciclos de pausa, retomada e encerramento da sessão ARCore.
-- [ ] Somente após a validação física, escolher o próximo arquivo de domínio relacionado à estimativa de massa por densidade.
+- [ ] Implementação de seletor visual de materiais com chips de densidade no HUD do Compose.
+- [ ] Renderização de badge contextual dinâmico exibindo simultaneamente volume, massa e incerteza $(\pm\sigma)$.
+- [ ] Estruturação da persistência local de medições espaciais e exportação de relatórios metrológicos (JSON/CSV).
+- [ ] Expansão da modelagem geométrica para cálculo de área de polígonos coplanares 3D (Fórmula de Shoelace 3D / Teorema de Stokes).
+- [ ] Validação dos novos fluxos no dispositivo com pipeline completo de testes e Lint.
