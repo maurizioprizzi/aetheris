@@ -10,21 +10,26 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
@@ -42,11 +47,15 @@ import kotlinx.coroutines.launch
 import org.aetheris.app.data.arcore.ArCoreSessionManager
 import org.aetheris.app.domain.model.DimensionAxis
 import org.aetheris.app.domain.model.DistanceMeasurement
+import org.aetheris.app.domain.model.MassEstimate
+import org.aetheris.app.domain.model.MaterialDensity
+import org.aetheris.app.domain.model.MaterialDensityCatalog
 import org.aetheris.app.domain.model.SpatialDimensions
 import org.aetheris.app.domain.model.TrackingStatus
 import org.aetheris.app.domain.model.VolumeMeasurement
 import org.aetheris.app.presentation.components.ArCameraFeed
 import org.aetheris.app.presentation.components.FloatingMeasurementBadge
+import org.aetheris.app.presentation.components.MaterialDensitySelector
 import org.aetheris.app.presentation.permissions.CameraPermissionHandler
 import org.koin.androidx.compose.koinViewModel
 import org.koin.compose.koinInject
@@ -138,6 +147,10 @@ fun MeasurementScreen(
                     viewModel::onConfirmCurrentDimension,
                 onClearCurrentDimension =
                     viewModel::onClearCurrentDimension,
+                onMaterialSelected =
+                    viewModel::onMaterialDensitySelected,
+                onClearSelectedMaterial =
+                    viewModel::onClearSelectedMaterial,
                 onReset =
                     viewModel::onResetMeasurements,
                 modifier = Modifier
@@ -234,6 +247,8 @@ private fun MeasurementControlPanel(
     onPlaceAnchor: () -> Unit,
     onConfirmDimension: () -> Unit,
     onClearCurrentDimension: () -> Unit,
+    onMaterialSelected: (MaterialDensity) -> Unit,
+    onClearSelectedMaterial: () -> Unit,
     onReset: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -256,6 +271,14 @@ private fun MeasurementControlPanel(
             uiState.canPlaceAnchor
         }
 
+    val selectorColorScheme =
+        MaterialTheme.colorScheme.copy(
+            primary = ActiveAxisColor,
+            surface = PanelColor,
+            onSurface = PrimaryTextColor,
+            onSurfaceVariant = SecondaryTextColor
+        )
+
     Card(
         modifier = modifier,
         colors = CardDefaults.cardColors(
@@ -265,7 +288,14 @@ private fun MeasurementControlPanel(
         shape = RoundedCornerShape(16.dp)
     ) {
         Column(
-            modifier = Modifier.padding(20.dp),
+            modifier = Modifier
+                .heightIn(
+                    max = MaximumControlPanelHeight
+                )
+                .verticalScroll(
+                    rememberScrollState()
+                )
+                .padding(20.dp),
             horizontalAlignment =
                 Alignment.CenterHorizontally
         ) {
@@ -288,6 +318,59 @@ private fun MeasurementControlPanel(
                         dimensions =
                             uiState.spatialDimensions
                     )
+
+                    Spacer(
+                        modifier = Modifier.height(16.dp)
+                    )
+
+                    MaterialTheme(
+                        colorScheme =
+                            selectorColorScheme
+                    ) {
+                        MaterialDensitySelector(
+                            materials =
+                                MaterialDensityCatalog.all,
+                            selectedMaterial =
+                                uiState
+                                    .selectedMaterialDensity,
+                            onMaterialSelected =
+                                onMaterialSelected,
+                            modifier =
+                                Modifier.fillMaxWidth()
+                        )
+                    }
+
+                    if (
+                        uiState.selectedMaterialDensity != null
+                    ) {
+                        TextButton(
+                            onClick =
+                                onClearSelectedMaterial
+                        ) {
+                            Text(
+                                text = "Remover material",
+                                color = SecondaryTextColor
+                            )
+                        }
+                    }
+
+                    val massEstimate =
+                        uiState.massEstimate
+
+                    if (massEstimate != null) {
+                        Spacer(
+                            modifier =
+                                Modifier.height(8.dp)
+                        )
+
+                        MassEstimateResult(
+                            massEstimate =
+                                massEstimate,
+                            selectedMaterial =
+                                uiState
+                                    .selectedMaterialDensity
+                        )
+                    }
                 }
 
                 uiState.currentMeasurement != null -> {
@@ -561,6 +644,86 @@ private fun VolumeResult(
 }
 
 @Composable
+private fun MassEstimateResult(
+    massEstimate: MassEstimate,
+    selectedMaterial: MaterialDensity?
+) {
+    val locale = Locale.getDefault()
+
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        color = MassResultBackgroundColor,
+        shape = RoundedCornerShape(10.dp)
+    ) {
+        Column(
+            modifier = Modifier.padding(14.dp),
+            horizontalAlignment =
+                Alignment.CenterHorizontally
+        ) {
+            Text(
+                text = "MASSA ESTIMADA",
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Bold,
+                fontFamily = FontFamily.Monospace,
+                color = MassColor,
+                letterSpacing = 1.sp
+            )
+
+            Spacer(
+                modifier = Modifier.height(4.dp)
+            )
+
+            Text(
+                text = massEstimate.formattedValueOnly(
+                    locale = locale
+                ),
+                fontSize = 32.sp,
+                fontWeight = FontWeight.Bold,
+                fontFamily = FontFamily.Monospace,
+                color = Color.White,
+                textAlign = TextAlign.Center
+            )
+
+            Text(
+                text = massUncertaintyText(
+                    massEstimate = massEstimate,
+                    locale = locale
+                ),
+                fontSize = 13.sp,
+                fontFamily = FontFamily.Monospace,
+                color = SecondaryTextColor
+            )
+
+            selectedMaterial?.let { material ->
+                Spacer(
+                    modifier = Modifier.height(8.dp)
+                )
+
+                Text(
+                    text = material.materialName,
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = PrimaryTextColor,
+                    textAlign = TextAlign.Center
+                )
+            }
+
+            Spacer(
+                modifier = Modifier.height(8.dp)
+            )
+
+            Text(
+                text = "Estimativa para objeto sólido e homogêneo. " +
+                        "Não equivale a uma pesagem em balança.",
+                fontSize = 11.sp,
+                color = SecondaryTextColor,
+                textAlign = TextAlign.Center
+            )
+        }
+    }
+}
+
+@Composable
 private fun DimensionSummary(
     dimensions: SpatialDimensions,
     locale: Locale
@@ -791,7 +954,11 @@ private fun primaryButtonLabel(
     uiState: MeasurementUiState
 ): String {
     if (uiState.volumeMeasurement != null) {
-        return "Volume calculado"
+        return if (uiState.massEstimate != null) {
+            "Estimativa concluída"
+        } else {
+            "Selecione o material"
+        }
     }
 
     val axisName =
@@ -856,6 +1023,25 @@ private fun volumeUncertaintyText(
     }
 }
 
+private fun massUncertaintyText(
+    massEstimate: MassEstimate,
+    locale: Locale
+): String {
+    return if (massEstimate.kilograms < 1f) {
+        String.format(
+            locale,
+            "±%.1f g",
+            massEstimate.uncertaintyGrams
+        )
+    } else {
+        String.format(
+            locale,
+            "±%.2f kg",
+            massEstimate.confidenceIntervalKg
+        )
+    }
+}
+
 private fun DimensionAxis.displayName(): String {
     return when (this) {
         DimensionAxis.WIDTH -> "LARGURA"
@@ -907,6 +1093,9 @@ private data class StatusPresentation(
     val label: String
 )
 
+private val MaximumControlPanelHeight =
+    560.dp
+
 private val PanelColor =
     Color(0xFF161B22)
 
@@ -939,3 +1128,9 @@ private val ActiveAxisColor =
 
 private val VolumeColor =
     Color(0xFFA371F7)
+
+private val MassColor =
+    Color(0xFFFFC857)
+
+private val MassResultBackgroundColor =
+    Color(0xFF21262D)
