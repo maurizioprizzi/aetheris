@@ -34,12 +34,17 @@ class ArCoreSessionManager(
     var isDepthEnabled: Boolean = false
         private set
 
+    @Volatile
+    var isInstantPlacementEnabled: Boolean = false
+        private set
+
     /**
      * Cria ou retoma a sessão ARCore.
      */
     @MainThread
     fun resume(): Result<Session> {
-        val existingSession = session
+        val existingSession =
+            session
 
         if (
             existingSession != null &&
@@ -105,12 +110,14 @@ class ArCoreSessionManager(
          * Remove primeiro a referência compartilhada para impedir
          * que a thread OpenGL utilize uma sessão em encerramento.
          */
-        val sessionToClose = session
+        val sessionToClose =
+            session
 
         session = null
         isRunning = false
         isDepthEnabled = false
         isDepthSupported = false
+        isInstantPlacementEnabled = false
 
         try {
             sessionToClose?.close()
@@ -153,13 +160,27 @@ class ArCoreSessionManager(
                         Config.FocusMode.AUTO
 
                     /*
+                     * Permite criar um ponto espacial aproximado
+                     * quando o ARCore ainda não construiu um plano
+                     * ou não encontrou um ponto rastreável sob
+                     * a coordenada consultada.
+                     *
+                     * O resultado aproximado ainda deverá ser
+                     * tratado pelo ArCoreHitTestProcessor antes
+                     * de ser aceito como medição definitiva.
+                     */
+                    instantPlacementMode =
+                        Config.InstantPlacementMode
+                            .LOCAL_Y_UP
+
+                    /*
                      * Alguns aparelhos informam suporte ao modo
                      * Depth automático, mas apresentam falha no
                      * pipeline nativo durante ComputeDisparity.
                      *
-                     * Detecção de planos, hit tests, âncoras e
-                     * point cloud continuam funcionando sem a
-                     * Depth API.
+                     * A Depth API permanece desativada enquanto
+                     * planos, pontos rastreáveis, point cloud e
+                     * Instant Placement continuam disponíveis.
                      */
                     depthMode =
                         Config.DepthMode.DISABLED
@@ -170,6 +191,11 @@ class ArCoreSessionManager(
             isDepthEnabled =
                 config.depthMode !=
                         Config.DepthMode.DISABLED
+
+            isInstantPlacementEnabled =
+                config.instantPlacementMode ==
+                        Config.InstantPlacementMode
+                            .LOCAL_Y_UP
 
             newSession
         } catch (exception: Exception) {
@@ -184,6 +210,7 @@ class ArCoreSessionManager(
 
             isDepthSupported = false
             isDepthEnabled = false
+            isInstantPlacementEnabled = false
 
             throw exception
         }

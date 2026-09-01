@@ -34,6 +34,12 @@ data class MeasurementUiState(
 
     val detectedPointsCount: Int = 0,
 
+    /**
+     * Indica que a mira está sobre uma superfície real
+     * reconhecida pelo hit test convencional do ARCore.
+     *
+     * Este valor não inclui o Instant Placement.
+     */
     val isTargetingSurface: Boolean = false,
 
     val isAnchorPlacementInProgress: Boolean = false,
@@ -222,9 +228,33 @@ data class MeasurementUiState(
                 selectedMaterialDensity != null &&
                 massEstimate != null
 
+    /**
+     * Indica que o próximo ponto poderá usar uma superfície
+     * confirmada pelo ARCore.
+     */
+    val hasConfirmedPlacementSurface: Boolean
+        get() = isTracking &&
+                isTargetingSurface
+
+    /**
+     * Indica que não existe superfície convencional sob a
+     * mira e que o próximo clique poderá precisar utilizar
+     * o Instant Placement como fallback aproximado.
+     */
+    val requiresApproximatePlacement: Boolean
+        get() = isTracking &&
+                !isTargetingSurface
+
+    /**
+     * A criação de âncoras depende do rastreamento da câmera,
+     * mas não exige mais que um plano convencional esteja
+     * previamente detectado.
+     *
+     * Quando não houver superfície real, o processador poderá
+     * tentar o Instant Placement somente durante o clique.
+     */
     val canPlaceAnchor: Boolean
         get() = isTracking &&
-                isTargetingSurface &&
                 !isAnchorPlacementInProgress &&
                 currentDimensionAxis != null &&
                 nextAnchorSlot != null

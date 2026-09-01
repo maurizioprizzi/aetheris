@@ -39,8 +39,8 @@ class MeasurementViewModel(
     }
 
     /**
-     * Atualiza as dimensões da viewport quando a superfície
-     * gráfica sofre redimensionamento.
+     * Atualiza as dimensões da viewport da interface e do
+     * repositório responsável pelos hit tests do ARCore.
      */
     fun onSurfaceDimensionsChanged(
         widthPx: Int,
@@ -49,6 +49,20 @@ class MeasurementViewModel(
         if (widthPx <= 0 || heightPx <= 0) {
             return
         }
+
+        /*
+         * O repositório precisa conhecer o tamanho real da superfície
+         * para converter coordenadas normalizadas em pixels.
+         *
+         * Sem esta atualização, normalizedToPixels() retorna null,
+         * isSurfaceDetected permanece false e o botão de criação
+         * de âncoras nunca é habilitado.
+         */
+        (spatialSensorRepository as? SpatialSensorRepositoryImpl)
+            ?.updateViewportSize(
+                widthPx = widthPx,
+                heightPx = heightPx
+            )
 
         _uiState.update { current ->
             if (
@@ -66,16 +80,20 @@ class MeasurementViewModel(
     }
 
     /**
-     * Atualiza a posição 2D do badge métrico usando
-     * as matrizes mais recentes da câmera.
+     * Atualiza a posição do indicador da dimensão atual
+     * utilizando as matrizes mais recentes da câmera.
      */
     fun onCameraMatricesUpdated(
         viewMatrix: FloatArray,
         projectionMatrix: FloatArray
     ) {
         val state = _uiState.value
-        val startPoint = state.selectedStartPoint
-        val endPoint = state.selectedEndPoint
+
+        val startPoint =
+            state.selectedStartPoint
+
+        val endPoint =
+            state.selectedEndPoint
 
         val projectedBadge =
             if (
@@ -107,18 +125,15 @@ class MeasurementViewModel(
     }
 
     /**
-     * Processa o frame ARCore na GL Thread.
+     * Entrega o frame mais recente ao repositório ARCore.
      */
     fun processFrame(frame: Frame) {
-        (
-                spatialSensorRepository
-                        as? SpatialSensorRepositoryImpl
-                )?.onFrameUpdate(frame)
+        (spatialSensorRepository as? SpatialSensorRepositoryImpl)
+            ?.onFrameUpdate(frame)
     }
 
     /**
-     * Cria a próxima âncora necessária para a dimensão
-     * atualmente ativa.
+     * Cria o próximo ponto da dimensão atualmente ativa.
      */
     fun onAnchorPointTapped() {
         val state = _uiState.value
@@ -140,42 +155,35 @@ class MeasurementViewModel(
             )
         }
 
-        anchorPlacementJob = viewModelScope.launch {
-            try {
-                spatialSensorRepository.createAnchor(
-                    normalizedX =
-                        CENTER_NORMALIZED_COORDINATE,
-                    normalizedY =
-                        CENTER_NORMALIZED_COORDINATE,
-                    slot = anchorSlot
-                )
-            } finally {
-                _uiState.update { current ->
-                    current.copy(
-                        isAnchorPlacementInProgress = false
+        anchorPlacementJob =
+            viewModelScope.launch {
+                try {
+                    spatialSensorRepository.createAnchor(
+                        normalizedX =
+                            CENTER_NORMALIZED_COORDINATE,
+                        normalizedY =
+                            CENTER_NORMALIZED_COORDINATE,
+                        slot = anchorSlot
                     )
+                } finally {
+                    _uiState.update { current ->
+                        current.copy(
+                            isAnchorPlacementInProgress = false
+                        )
+                    }
                 }
             }
-        }
     }
 
     /**
-     * Confirma a distância atual como medição do eixo ativo.
+     * Confirma a distância atual como o valor do eixo ativo.
      *
-     * Depois da confirmação:
-     *
-     * 1. A medição é armazenada em largura, altura ou profundidade;
-     * 2. As âncoras atuais são liberadas;
-     * 3. O próximo eixo passa a ser selecionado;
-     * 4. Ao concluir a profundidade, o volume é calculado;
-     * 5. Se um material já estiver selecionado, a massa é estimada.
+     * Quando os três eixos são concluídos, o volume é
+     * calculado automaticamente. Caso um material esteja
+     * selecionado, a massa também é calculada.
      */
     fun onConfirmCurrentDimension() {
         val state = _uiState.value
-
-        if (!state.canConfirmCurrentDimension) {
-            return
-        }
 
         val currentAxis =
             state.currentDimensionAxis ?: return
@@ -183,13 +191,17 @@ class MeasurementViewModel(
         val currentMeasurement =
             state.currentMeasurement ?: return
 
+        if (!state.canConfirmCurrentDimension) {
+            return
+        }
+
         val updatedDimensions =
             state.spatialDimensions.withMeasurement(
                 axis = currentAxis,
                 measurement = currentMeasurement
             )
 
-        val updatedVolume =
+        val calculatedVolume =
             if (updatedDimensions.isComplete) {
                 calculateVolumeUseCase(
                     dimensions = updatedDimensions
@@ -198,13 +210,13 @@ class MeasurementViewModel(
                 null
             }
 
-        val updatedMassEstimate =
+        val calculatedMass =
             if (
-                updatedVolume != null &&
+                calculatedVolume != null &&
                 state.selectedMaterialDensity != null
             ) {
                 calculateMassUseCase(
-                    volume = updatedVolume,
+                    volume = calculatedVolume,
                     materialDensity =
                         state.selectedMaterialDensity
                 )
@@ -212,38 +224,30 @@ class MeasurementViewModel(
                 null
             }
 
+        spatialSensorRepository.clearAnchors()
+
         _uiState.update { current ->
             current.copy(
                 selectedStartPoint = null,
                 selectedEndPoint = null,
                 currentMeasurement = null,
                 spatialDimensions = updatedDimensions,
-                volumeMeasurement = updatedVolume,
-                massEstimate = updatedMassEstimate,
+                volumeMeasurement = calculatedVolume,
+                massEstimate = calculatedMass,
                 badgePosition = null,
                 isAnchorPlacementInProgress = false
             )
         }
-
-        /*
-         * As âncoras da dimensão concluída não serão
-         * reutilizadas pelo próximo eixo.
-         */
-        spatialSensorRepository.clearAnchors()
     }
 
     /**
-     * Seleciona a densidade do material utilizado na
-     * estimativa de massa.
-     *
-     * Quando o volume já está disponível, a massa é
-     * recalculada imediatamente.
+     * Seleciona o material usado na estimativa de massa.
      */
     fun onMaterialDensitySelected(
         materialDensity: MaterialDensity
     ) {
         _uiState.update { current ->
-            val updatedMassEstimate =
+            val calculatedMass =
                 current.volumeMeasurement?.let { volume ->
                     calculateMassUseCase(
                         volume = volume,
@@ -253,34 +257,25 @@ class MeasurementViewModel(
 
             current.copy(
                 selectedMaterialDensity = materialDensity,
-                massEstimate = updatedMassEstimate
+                massEstimate = calculatedMass
             )
         }
     }
 
     /**
-     * Remove o material selecionado e invalida a estimativa
-     * de massa associada a ele.
+     * Remove o material selecionado e a estimativa de massa.
      */
     fun onClearSelectedMaterial() {
         _uiState.update { current ->
-            if (
-                current.selectedMaterialDensity == null &&
-                current.massEstimate == null
-            ) {
-                current
-            } else {
-                current.copy(
-                    selectedMaterialDensity = null,
-                    massEstimate = null
-                )
-            }
+            current.copy(
+                selectedMaterialDensity = null,
+                massEstimate = null
+            )
         }
     }
 
     /**
-     * Limpa somente os pontos da dimensão que está
-     * sendo capturada, preservando dimensões anteriores.
+     * Descarta somente os pontos da dimensão atualmente ativa.
      */
     fun onClearCurrentDimension() {
         anchorPlacementJob?.cancel()
@@ -300,8 +295,7 @@ class MeasurementViewModel(
     }
 
     /**
-     * Reinicia completamente a medição tridimensional
-     * e todos os resultados físicos associados.
+     * Reinicia completamente a medição espacial.
      */
     fun onResetMeasurements() {
         anchorPlacementJob?.cancel()
@@ -324,6 +318,9 @@ class MeasurementViewModel(
         }
     }
 
+    /**
+     * Observa o estado espacial emitido pelo repositório.
+     */
     private fun observeSpatialData() {
         viewModelScope.launch {
             spatialSensorRepository
