@@ -8,454 +8,254 @@
 [![16 KB Page Size](https://img.shields.io/badge/16_KB_Page_Size-Configured-brightgreen.svg)](https://developer.android.com/16kb-page-size)
 [![Min SDK](https://img.shields.io/badge/Min_SDK-26-green.svg)](https://developer.android.com)
 
-**Aetheris** is an open-source experimental spatial measurement platform for Android.
+**Aetheris** is an open-source experimental spatial metrology platform for Android.
 
-It combines ARCore tracking, native anchors, spatial raycasting, point-cloud filtering, OpenGL ES 3.0 rendering and Jetpack Compose to measure and visualize distances in three-dimensional environments.
+It combines ARCore tracking, native anti-drift anchors, spatial raycasting, point-cloud filtering, OpenGL ES 3.0 graphics, and Jetpack Compose to measure distances, calculate 3D bounding-box volumes, and estimate physical mass through material density in real-world environments.
 
-The project is also an exploration of mobile spatial computing, real-time graphics, reactive architecture and uncertainty-aware physical measurements.
+The project is an exploration of mobile spatial computing, real-time graphics pipelines, Unidirectional Data Flow (UDF), and uncertainty-aware physical modeling.
 
 > [!IMPORTANT]
-> Aetheris is not a certified metrological instrument. Measurements depend on device hardware, camera calibration, environmental conditions and ARCore tracking quality.
+> Aetheris is an experimental spatial computing system and not a certified metrological instrument. Measurements depend on device hardware, camera calibration, lighting, surface texture, and ARCore tracking stability.
 
 ---
 
-## Current capabilities
+## Current Capabilities
 
-| Capability | Status |
-| --- | --- |
-| ARCore camera background | Implemented |
-| OpenGL ES 3.0 rendering | Implemented |
-| Point-cloud confidence filtering | Implemented |
-| Plane and feature-point hit testing | Implemented |
-| Native ARCore anchor placement | Implemented |
-| Two-point spatial distance | Implemented |
-| World-to-screen projection | Implemented |
-| Floating Compose measurement badge | Implemented |
-| Heuristic uncertainty estimation | Implemented |
-| AABB spatial dimensions | Domain implementation |
-| Depth API | Temporarily disabled |
-| Multipoint measurements | Planned |
-| Polygon area measurement | Planned |
-| JSON and CSV export | Planned |
-
----
-
-## Spatial measurement pipeline
-
-Aetheris performs a measurement through the following pipeline:
-
-1. ARCore tracks the camera pose using visual-inertial odometry.
-2. The application acquires and filters the latest point cloud.
-3. A screen coordinate is converted from normalized viewport space to pixels.
-4. `Frame.hitTest()` searches for a valid physical intersection.
-5. The result is validated against tracked planes, oriented feature points or depth points.
-6. A native ARCore `Anchor` is created for the selected position.
-7. Anchor poses are observed continuously as ARCore refines its world map.
-8. The Euclidean distance between the two anchored points is calculated.
-9. OpenGL renders the anchors and the spatial line.
-10. The line midpoint is projected into screen space.
-11. Jetpack Compose displays the measurement badge at the projected position.
+| Capability | Status | Description |
+| :--- | :--- | :--- |
+| **ARCore Camera Background** | Implemented | Zero-copy `GL_TEXTURE_EXTERNAL_OES` rendering pipeline. |
+| **OpenGL ES 3.0 Graphics** | Implemented | Real-time 3D rendering for lines (`GL_LINES`) and anchor points (`GL_POINTS`). |
+| **Point-Cloud Filtering** | Implemented | Strict confidence thresholding, NaN/infinite value discarding, and safe `AutoCloseable` lifecycle. |
+| **Raycasting & Surface Gating** | Implemented | Plane polygon gating (`isPoseInPolygon`), oriented feature points, and ToF point validation. |
+| **Instant Placement Fallback** | Implemented | Deterministic point estimation on untextured/low-plane surfaces via `LOCAL_Y_UP`. |
+| **Frame-Affine Placement Queue**| Implemented | Thread-safe raycasting and anchor attachment synchronized on the active render frame. |
+| **Anti-Drift Anchor Tracking** | Implemented | Persistent native ARCore `Anchor` binding corrected frame-by-frame by SLAM pose graphs. |
+| **Linear Distance Measurement** | Implemented | High-precision Euclidean norm calculation with dynamic metrological uncertainty ($\pm\sigma$). |
+| **Sequential 3-Axis Volume** | Implemented | Guided $W \to H \to D$ capture with AABB volume calculation in $\text{m}^3$ and liters. |
+| **Mass Estimation by Density** | Implemented | Physical mass calculation across standard materials with combined uncertainty propagation. |
+| **World-to-Screen Projection** | Implemented | Full MVP projective transformation with frustum clipping guard ($w_c \le 0$). |
+| **Floating Compose Badge** | Implemented | Screen-space reactive badge tracking spatial midpoints in real time. |
+| **Depth API** | Fallback / Disabled | Intentionally disabled (`DepthMode.DISABLED`) to avoid native `ComputeDisparity` driver faults. |
+| **Multipoint Polylines** | Planned | Sequential multi-node boundary tracking. |
+| **3D Polygon Area (Shoelace)** | Planned | Coplanar surface area calculation and translucent mesh rendering. |
+| **Metrological Export** | Planned | Structured spatial dataset export in JSON and CSV formats. |
 
 ---
 
-## Core engineering features
-
-### Native ARCore anchor tracking
-
-Measurement endpoints are associated with native ARCore `Anchor` objects instead of storing only a static coordinate.
-
-As ARCore refines its pose graph, Aetheris reads the updated anchor poses and propagates them through the spatial state stream. This reduces visible displacement during longer tracking sessions.
-
-Anchors are detached deterministically when replaced, cleared or stopped.
-
-### Spatial raycasting
-
-Hit tests are validated against supported ARCore trackables:
-
-- Tracked planes whose hit poses are inside their polygons.
-- Tracked feature points with `ESTIMATED_SURFACE_NORMAL`.
-- Tracked `DepthPoint` results when available.
-
-Invalid coordinates, paused tracking and unavailable frames are rejected safely.
-
-### Point-cloud filtering
-
-Each ARCore point contains four values:
+## Spatial Measurement Pipeline
 
 ```text
-x, y, z, confidence
+Touch / Viewport Input (Normalized NDC)
+    │
+    ▼
+Frame-Affine Request Queue (ConcurrentLinkedQueue)
+    │
+    ▼ [Render Thread - GLThread]
+Raycasting Execution (Plane Polygon → Oriented Point → Instant Placement)
+    │
+    ▼
+Native Anchor Creation & Binding (com.google.ar.core.Anchor)
+    │
+    ▼
+Continuous SLAM Pose Graph Correction (Pose.translation)
+    │
+    ├──► OpenGL ES 3.0 Geometry Pass (Lines & Points)
+    │
+    ├──► Domain Mathematical Engine (Distance → Volume → Mass)
+    │
+    ▼
+World-to-Screen Projection (M_proj × M_view × M_model) + Frustum Culling
+    │
+    ▼
+Reactive Compose HUD Overlay (Floating Measurement Badge & Telemetry)
 ```
 
-`ArCoreFrameProcessor` discards points with:
-
-- Confidence below the configured threshold.
-- Non-finite coordinates.
-- Non-finite confidence values.
-
-The acquired `PointCloud` is always closed through Kotlin's `use` mechanism.
-
-### World-to-screen projection
-
-World coordinates are transformed through the complete graphics pipeline:
-
-```text
-World space
-    ↓ View matrix
-Camera space
-    ↓ Projection matrix
-Clip space
-    ↓ Perspective division
-Normalized Device Coordinates
-    ↓ Viewport mapping
-Screen pixels
-```
-
-The projection validates matrix contents, homogeneous clip coordinates, frustum boundaries and viewport dimensions before exposing a visible screen position.
-
-### OpenGL ES 3.0 rendering
-
-The rendering layer uses:
-
-- `GL_TEXTURE_EXTERNAL_OES` for the camera image.
-- GLSL ES 3.0 vertex and fragment shaders.
-- `GL_LINES` for measurement vectors.
-- `GL_POINTS` for anchor markers.
-- VAOs and VBOs for GPU-side geometry.
-- Direct `FloatBuffer` instances.
-- Preallocated matrices and vertex arrays.
-- Explicit OpenGL resource destruction.
-
-The renderers minimize allocations inside the frame loop and restore required OpenGL bindings after drawing.
-
-### Uncertainty-aware distance model
-
-Distance is calculated using the Euclidean norm:
-
-\[
-d = \sqrt{(x_2-x_1)^2 + (y_2-y_1)^2 + (z_2-z_1)^2}
-\]
-
-Aetheris also produces a heuristic uncertainty estimate:
-
-\[
-u = u_{\text{base}}
-\cdot
-\frac{1 + d / d_{\text{ref}}}
-{c_{\text{effective}}}
-\]
-
-This model communicates that uncertainty tends to increase with distance and reduced tracking confidence.
-
-It is an engineering estimate and does not represent certified calibration of the device.
+1. **VIO & Tracking:** ARCore tracks 6-DOF camera pose via visual-inertial odometry.
+2. **Buffer Ingestion:** Point cloud is acquired, validated, and filtered via `ArCoreFrameProcessor`.
+3. **Synchronized Placement:** Screen taps are queued and processed synchronously on the `GLThread` against the active frame.
+4. **Hit Testing & Fallback:** Raycasting validates tracked plane polygons first, oriented feature points second, and Instant Placement points as fallback.
+5. **Dynamic Anchoring:** Native `Anchor` instances are bound to spatial nodes. As the SLAM map optimizes, poses are updated frame-by-frame.
+6. **Domain Calculation:** The pure Kotlin domain calculates Euclidean distance, bounding-box volume, or mass along with statistical uncertainty.
+7. **Spatial Rendering:** `SpatialLineRenderer` draws the 3D geometry directly onto the EGL context.
+8. **Projection & HUD:** `ProjectWorldToScreenUseCase` maps 3D points to 2D pixel coordinates, rendering floating Compose badges over the physical target.
 
 ---
 
-## Architecture
+## Mathematical Models
 
-Aetheris follows Clean Architecture principles and Unidirectional Data Flow.
+### 1. Euclidean Distance & Metric Uncertainty
+
+Distance between two 3D spatial points $P_1(x_1, y_1, z_1)$ and $P_2(x_2, y_2, z_2)$ is computed using double-precision Euclidean norm:
+
+$$d = \sqrt{(x_2 - x_1)^2 + (y_2 - y_1)^2 + (z_2 - z_1)^2}$$
+
+Dynamic metrological uncertainty ($u_d$) scales based on distance and tracking confidence:
+
+$$u_d = u_{\text{base}} \cdot \frac{1 + \frac{d}{d_{\text{ref}}}}{c_{\text{effective}}}$$
+
+### 2. Bounding-Box (AABB) Volume & Uncertainty Propagation
+
+Volume from sequential axis capture ($w$: width, $h$: height, $d$: depth) is defined as:
+
+$$V = w \times h \times d$$
+
+Uncertainty ($u_V$) is propagated from independent axis variances without singularity risks:
+
+$$u_V = \sqrt{(h \cdot d \cdot u_w)^2 + (w \cdot d \cdot u_h)^2 + (w \cdot h \cdot u_d)^2}$$
+
+### 3. Mass Estimation by Physical Density
+
+Mass ($M$) combines calculated volume with material density ($\rho$):
+
+$$M = V \times \rho$$
+
+Combined standard uncertainty ($u_M$) accounts for spatial volume variance and material density tolerance ($u_\rho$):
+
+$$u_M = \sqrt{(\rho \cdot u_V)^2 + (V \cdot u_\rho)^2}$$
+
+---
+
+## Clean Architecture & System Structure
+
+The application strictly separates pure Kotlin business logic from Android and ARCore dependencies.
 
 ```text
 org.aetheris.app
 ├── data
 │   ├── arcore
-│   │   ├── ArCoreSessionManager
-│   │   ├── ArCoreFrameProcessor
-│   │   └── ArCoreHitTestProcessor
+│   │   ├── ArCoreFrameProcessor.kt
+│   │   ├── ArCoreHitTestProcessor.kt
+│   │   └── ArCoreSessionManager.kt
 │   ├── opengl
-│   │   ├── BackgroundRenderer
-│   │   └── SpatialLineRenderer
+│   │   ├── BackgroundRenderer.kt
+│   │   └── SpatialLineRenderer.kt
 │   └── repository
-│       └── SpatialSensorRepositoryImpl
+│       └── SpatialSensorRepositoryImpl.kt
 ├── domain
 │   ├── math
-│   │   └── SpatialLineMath
+│   │   └── SpatialLineMath.kt
 │   ├── model
-│   │   ├── AnchorSlot
-│   │   ├── BoundingBox3D
-│   │   ├── DistanceMeasurement
-│   │   ├── MassEstimate
-│   │   ├── Point3D
-│   │   ├── ScreenPoint2D
-│   │   ├── SpatialFrameData
-│   │   └── TrackingStatus
+│   │   ├── AnchorSlot.kt
+│   │   ├── BoundingBox3D.kt
+│   │   ├── DimensionAxis.kt
+│   │   ├── DistanceMeasurement.kt
+│   │   ├── MassEstimate.kt
+│   │   ├── MaterialDensity.kt
+│   │   ├── Point3D.kt
+│   │   ├── ScreenPoint2D.kt
+│   │   ├── SpatialDimensions.kt
+│   │   ├── SpatialFrameData.kt
+│   │   ├── TrackingStatus.kt
+│   │   └── VolumeMeasurement.kt
 │   ├── repository
-│   │   └── SpatialSensorRepository
+│   │   └── SpatialSensorRepository.kt
 │   └── usecase
-│       ├── CalculateDistanceUseCase
-│       ├── EstimateSpatialDimensionsUseCase
-│       └── ProjectWorldToScreenUseCase
+│       ├── CalculateDistanceUseCase.kt
+│       ├── CalculateVolumeUseCase.kt
+│       ├── EstimateMassUseCase.kt
+│       ├── EstimateSpatialDimensionsUseCase.kt
+│       └── ProjectWorldToScreenUseCase.kt
 ├── presentation
 │   ├── components
+│   │   ├── ArCameraFeed.kt
+│   │   ├── FloatingMeasurementBadge.kt
+│   │   └── MeasurementCrosshair.kt
 │   ├── measurement
-│   └── permissions
-└── di
-    └── AppModule
+│   │   ├── MeasurementScreen.kt
+│   │   ├── MeasurementUiState.kt
+│   │   └── MeasurementViewModel.kt
+│   └── theme
+├── di
+│   └── AppModule.kt
+└── MainActivity.kt
 ```
 
-### Domain layer
+---
 
-The mathematical domain is written in pure Kotlin and has no dependency on the Android SDK or ARCore.
+## Technology Stack
 
-This allows calculations and state rules to be tested directly on the JVM.
-
-### Data layer
-
-The data layer contains all integration with:
-
-- ARCore sessions and frames.
-- Point clouds.
-- Hit testing.
-- Native anchors.
-- OpenGL resources.
-- Camera textures.
-
-Framework-specific objects do not leak into the domain layer.
-
-### Presentation layer
-
-The interface is implemented with Jetpack Compose and observes immutable state through `StateFlow`.
-
-User actions are sent to `MeasurementViewModel`, which coordinates the domain and repository layers.
+- **Core & Runtime:** Kotlin 2.x, Android SDK (Min SDK 26, Target SDK 35), 16 KB Memory Page Aligned.
+- **UI & Presentation:** Jetpack Compose, Material 3, Unidirectional Data Flow (UDF), `StateFlow`.
+- **Spatial Computing & Graphics:** ARCore SDK 1.46.0, OpenGL ES 3.0, GLSL ES 3.0, EGL context isolation.
+- **Dependency Injection:** Koin (Clean Activity-level resolution, zero code-generation).
+- **Testing & Quality:** JUnit 4, MockK, Google Truth, Coroutines Test (`kotlinx-coroutines-test`), Android Lint.
+- **DevOps & CI:** GitHub Actions, Gradle Kotlin DSL (`libs.versions.toml`).
 
 ---
 
-## Technology stack
+## Testing & Quality Assurance
 
-- Kotlin
-- Android SDK
-- Jetpack Compose
-- Material 3
-- ARCore
-- OpenGL ES 3.0
-- GLSL ES 3.0
-- Kotlin Coroutines
-- StateFlow
-- Koin
-- JUnit 4
-- MockK
-- Google Truth
-- kotlinx-coroutines-test
-- Gradle Kotlin DSL
-- GitHub Actions
-
----
-
-## Depth API status
-
-The current configuration intentionally uses:
-
-```kotlin
-depthMode = Config.DepthMode.DISABLED
-```
-
-The development device reports support for automatic depth, but its native pipeline produced an internal `ComputeDisparity` failure.
-
-Disabling the Depth API preserves the stable operation of:
-
-- Plane detection.
-- Feature-point hit tests.
-- Native anchors.
-- Point-cloud processing.
-- Distance measurement.
-- OpenGL rendering.
-
-Depth support remains represented in the architecture and can be re-enabled after validation across compatible devices.
-
----
-
-## Testing
-
-The project currently has a green baseline of:
+Aetheris maintains a deterministic green test baseline across all mathematical use cases, repository doubles, and ViewModel state transitions.
 
 ```text
-32 tests executed
+128 tests executed
 0 failures
 BUILD SUCCESSFUL
-```
-
-The test suite covers:
-
-- Distance calculations.
-- Mathematical models.
-- Spatial projection.
-- Point-cloud filtering.
-- Hit-test validation.
-- Plane polygon checks.
-- Feature-point orientation.
-- Anchor creation and replacement.
-- Anchor cleanup.
-- Repository state updates.
-- Measurement ViewModel behavior.
-- Coroutine-based UI state transitions.
-
----
-
-## Continuous integration
-
-GitHub Actions runs the following checks for every push and pull request targeting `main`:
-
-1. JVM unit tests.
-2. Android Lint.
-3. Debug APK compilation.
-4. Test-report upload when a failure occurs.
-5. Debug APK upload as a workflow artifact.
-
-Workflow file:
-
-```text
-.github/workflows/android.yml
-```
-
----
-
-## Requirements
-
-To build Aetheris locally, you need:
-
-- JDK 17.
-- Android Studio with Android SDK support.
-- An Android SDK compatible with the project configuration.
-- An ARCore-supported physical Android device.
-- USB debugging enabled for direct installation.
-
-A physical device is recommended because ARCore tracking, anchors and camera behavior cannot be completely validated through ordinary JVM tests.
-
----
-
-## Build and verification
-
-Clone the repository:
-
-```bash
-git clone https://github.com/maurizioprizzi/aetheris.git
-cd aetheris
-```
-
-Grant execution permission to the Gradle Wrapper when necessary:
-
-```bash
-chmod +x gradlew
-```
-
-Run unit tests:
-
-```bash
-./gradlew testDebugUnitTest --no-configuration-cache
-```
-
-Run Android Lint:
-
-```bash
-./gradlew lintDebug --no-configuration-cache
-```
-
-Build the debug APK:
-
-```bash
-./gradlew assembleDebug --no-configuration-cache
 ```
 
 Run the complete local verification pipeline:
 
 ```bash
-./gradlew testDebugUnitTest lintDebug assembleDebug \
-    --no-configuration-cache
+./gradlew testDebugUnitTest lintDebug assembleDebug --no-configuration-cache
 ```
 
-Install the debug build on a connected device:
+---
+
+## Architecture Decision Records (ADRs)
+
+All core engineering and architectural decisions are formalized in [`docs/adr`](docs/adr):
+
+- `ADR-001`: Adoption of Koin over Hilt/Dagger for pure Kotlin portability.
+- `ADR-002`: Apache 2.0 Licensing and Open-Core Strategy.
+- `ADR-003`: Pure Kotlin Mathematical Domain Isolation.
+- `ADR-004`: First-Class Metrological Uncertainty Modeling.
+- `ADR-005`: Reactive Sensor Pipeline via `StateFlow` Decoupling.
+- `ADR-006`: Raycasting & Hit-Testing Spatial Abstraction.
+- `ADR-007`: Point-Cloud Noise Filtering & `FloatBuffer` Confidence Gating.
+- `ADR-008`: Unidirectional Data Flow (UDF) in Compose HUD.
+- `ADR-009`: Declarative Camera Permission Lifecycle Management.
+- `ADR-010`: ARCore Lifecycle and OpenGL Context Isolation.
+- `ADR-011`: Spatial Raycasting and Convex Polygon Gating.
+- `ADR-012`: Zero-Copy OES Camera Texture & OpenGL ES 3.0 Geometry Pipeline.
+- `ADR-013`: Native ARCore Anchor Tracking & Pose Graph Correction.
+- `ADR-014`: Defensive ARCore/OpenGL Resource Management and Depth Fallback.
+- `ADR-015`: Sequential Axis Capture & Uncertainty-Aware AABB Volume.
+- `ADR-016`: Frame-Affine Placement Queue & Instant Placement Fallback.
+
+---
+
+## Development Log
+
+Detailed day-by-day development logs, mathematical derivations, device diagnostic benchmarks, and regression analyses are maintained in [`DEVLOG.md`](DEVLOG.md).
+
+---
+
+## Build & Installation
+
+### Prerequisites
+
+- JDK 17.
+- Android Studio Ladybug | 2024.2.1+ or compatible.
+- Physical ARCore-compatible Android device (USB Debugging enabled).
+
+### Commands
 
 ```bash
+# Clone the repository
+git clone [https://github.com/maurizioprizzi/aetheris.git](https://github.com/maurizioprizzi/aetheris.git)
+cd aetheris
+
+# Ensure executable permissions
+chmod +x gradlew
+
+# Run unit test suite
+./gradlew testDebugUnitTest --no-configuration-cache
+
+# Build debug APK
+./gradlew assembleDebug --no-configuration-cache
+
+# Install directly to connected device
 ./gradlew installDebug
-```
-
-The generated APK is available at:
-
-```text
-app/build/outputs/apk/debug/app-debug.apk
-```
-
----
-
-## Architecture Decision Records
-
-Technical and architectural decisions are documented under [`docs/adr`](docs/adr).
-
-- `ADR-001`: Adoption of Koin over Hilt/Dagger
-- `ADR-002`: Apache 2.0 and Open Core strategy
-- `ADR-003`: Pure Kotlin mathematical domain
-- `ADR-004`: First-class measurement uncertainty
-- `ADR-005`: Reactive spatial repository
-- `ADR-006`: Hit-testing and raycasting abstraction
-- `ADR-007`: Point-cloud confidence filtering
-- `ADR-008`: Unidirectional Data Flow with StateFlow
-- `ADR-009`: Declarative camera permission handling
-- `ADR-010`: ARCore lifecycle and EGL context isolation
-- `ADR-011`: Spatial raycasting and convex polygon gating
-- `ADR-012`: OES camera texture and OpenGL geometry pipeline
-- `ADR-013`: Native anchor tracking and pose graph correction
-- `ADR-014`: Defensive ARCore/OpenGL resource management and Depth fallback
-
----
-
-## Development log
-
-The engineering history, debugging process, validation results and architectural evolution are recorded in [`DEVLOG.md`](DEVLOG.md).
-
----
-
-## Roadmap
-
-### Next
-
-- Multipoint measurements.
-- Three-dimensional polylines.
-- Coplanar polygon area calculation.
-- Translucent polygon rendering.
-- JSON and CSV measurement export.
-
-### Future research
-
-- Device-specific calibration profiles.
-- Confidence models based on empirical measurements.
-- Depth API compatibility profiles.
-- Plane-oriented dimensions instead of world-axis-only AABB.
-- Measurement session persistence.
-- Reproducible calibration datasets.
-- On-device validation reports.
-
----
-
-## Known limitations
-
-- Accuracy depends on ARCore tracking quality and device calibration.
-- Reflective, transparent or textureless surfaces can reduce stability.
-- Fast camera movement may temporarily interrupt tracking.
-- Low-light environments can reduce point-cloud quality.
-- Current AABB dimensions are aligned to world axes.
-- Depth mode is disabled in the current runtime configuration.
-- The uncertainty model is heuristic and has not been certified.
-- ARCore frames and GPU behavior require validation on physical devices.
-
----
-
-## Contributing
-
-Contributions, technical discussions and reproducible device reports are welcome.
-
-When reporting a device-specific issue, include:
-
-- Device manufacturer and model.
-- Android version.
-- ARCore version.
-- Relevant Logcat output.
-- Steps required to reproduce the issue.
-- Whether Depth support was enabled or disabled.
-
-Before opening a pull request, run:
-
-```bash
-./gradlew testDebugUnitTest lintDebug assembleDebug \
-    --no-configuration-cache
 ```
 
 ---
@@ -464,4 +264,12 @@ Before opening a pull request, run:
 
 Aetheris is distributed under the [Apache License 2.0](LICENSE).
 
-Copyright © 2026 Maurizio Prizzi
+```text
+Copyright 2026 Maurizio Prizzi
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    [http://www.apache.org/licenses/LICENSE-2.0](http://www.apache.org/licenses/LICENSE-2.0)
+```
