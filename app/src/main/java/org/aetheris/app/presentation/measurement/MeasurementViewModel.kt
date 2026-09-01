@@ -10,9 +10,11 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import org.aetheris.app.data.repository.SpatialSensorRepositoryImpl
+import org.aetheris.app.domain.model.MaterialDensity
 import org.aetheris.app.domain.model.SpatialDimensions
 import org.aetheris.app.domain.repository.SpatialSensorRepository
 import org.aetheris.app.domain.usecase.CalculateDistanceUseCase
+import org.aetheris.app.domain.usecase.CalculateMassUseCase
 import org.aetheris.app.domain.usecase.CalculateVolumeUseCase
 import org.aetheris.app.domain.usecase.ProjectWorldToScreenUseCase
 
@@ -20,6 +22,7 @@ class MeasurementViewModel(
     private val spatialSensorRepository: SpatialSensorRepository,
     private val calculateDistanceUseCase: CalculateDistanceUseCase,
     private val calculateVolumeUseCase: CalculateVolumeUseCase,
+    private val calculateMassUseCase: CalculateMassUseCase,
     private val projectWorldToScreenUseCase: ProjectWorldToScreenUseCase
 ) : ViewModel() {
 
@@ -110,8 +113,7 @@ class MeasurementViewModel(
         (
                 spatialSensorRepository
                         as? SpatialSensorRepositoryImpl
-                )
-            ?.onFrameUpdate(frame)
+                )?.onFrameUpdate(frame)
     }
 
     /**
@@ -165,7 +167,8 @@ class MeasurementViewModel(
      * 1. A medição é armazenada em largura, altura ou profundidade;
      * 2. As âncoras atuais são liberadas;
      * 3. O próximo eixo passa a ser selecionado;
-     * 4. Ao concluir a profundidade, o volume é calculado.
+     * 4. Ao concluir a profundidade, o volume é calculado;
+     * 5. Se um material já estiver selecionado, a massa é estimada.
      */
     fun onConfirmCurrentDimension() {
         val state = _uiState.value
@@ -195,6 +198,20 @@ class MeasurementViewModel(
                 null
             }
 
+        val updatedMassEstimate =
+            if (
+                updatedVolume != null &&
+                state.selectedMaterialDensity != null
+            ) {
+                calculateMassUseCase(
+                    volume = updatedVolume,
+                    materialDensity =
+                        state.selectedMaterialDensity
+                )
+            } else {
+                null
+            }
+
         _uiState.update { current ->
             current.copy(
                 selectedStartPoint = null,
@@ -202,6 +219,7 @@ class MeasurementViewModel(
                 currentMeasurement = null,
                 spatialDimensions = updatedDimensions,
                 volumeMeasurement = updatedVolume,
+                massEstimate = updatedMassEstimate,
                 badgePosition = null,
                 isAnchorPlacementInProgress = false
             )
@@ -212,6 +230,52 @@ class MeasurementViewModel(
          * reutilizadas pelo próximo eixo.
          */
         spatialSensorRepository.clearAnchors()
+    }
+
+    /**
+     * Seleciona a densidade do material utilizado na
+     * estimativa de massa.
+     *
+     * Quando o volume já está disponível, a massa é
+     * recalculada imediatamente.
+     */
+    fun onMaterialDensitySelected(
+        materialDensity: MaterialDensity
+    ) {
+        _uiState.update { current ->
+            val updatedMassEstimate =
+                current.volumeMeasurement?.let { volume ->
+                    calculateMassUseCase(
+                        volume = volume,
+                        materialDensity = materialDensity
+                    )
+                }
+
+            current.copy(
+                selectedMaterialDensity = materialDensity,
+                massEstimate = updatedMassEstimate
+            )
+        }
+    }
+
+    /**
+     * Remove o material selecionado e invalida a estimativa
+     * de massa associada a ele.
+     */
+    fun onClearSelectedMaterial() {
+        _uiState.update { current ->
+            if (
+                current.selectedMaterialDensity == null &&
+                current.massEstimate == null
+            ) {
+                current
+            } else {
+                current.copy(
+                    selectedMaterialDensity = null,
+                    massEstimate = null
+                )
+            }
+        }
     }
 
     /**
@@ -236,7 +300,8 @@ class MeasurementViewModel(
     }
 
     /**
-     * Reinicia completamente a medição tridimensional.
+     * Reinicia completamente a medição tridimensional
+     * e todos os resultados físicos associados.
      */
     fun onResetMeasurements() {
         anchorPlacementJob?.cancel()
@@ -251,6 +316,8 @@ class MeasurementViewModel(
                 currentMeasurement = null,
                 spatialDimensions = SpatialDimensions.EMPTY,
                 volumeMeasurement = null,
+                selectedMaterialDensity = null,
+                massEstimate = null,
                 badgePosition = null,
                 isAnchorPlacementInProgress = false
             )

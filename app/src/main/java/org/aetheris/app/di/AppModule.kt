@@ -78,6 +78,8 @@ val appModule = module {
                 get<CalculateDistanceUseCase>(),
             calculateVolumeUseCase =
                 get<CalculateVolumeUseCase>(),
+            calculateMassUseCase =
+                get<CalculateMassUseCase>(),
             projectWorldToScreenUseCase =
                 get<ProjectWorldToScreenUseCase>()
         )
