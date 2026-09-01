@@ -6,6 +6,7 @@ import org.aetheris.app.data.arcore.ArCoreSessionManager
 import org.aetheris.app.data.repository.SpatialSensorRepositoryImpl
 import org.aetheris.app.domain.repository.SpatialSensorRepository
 import org.aetheris.app.domain.usecase.CalculateDistanceUseCase
+import org.aetheris.app.domain.usecase.CalculateMassUseCase
 import org.aetheris.app.domain.usecase.CalculateVolumeUseCase
 import org.aetheris.app.domain.usecase.EstimateSpatialDimensionsUseCase
 import org.aetheris.app.domain.usecase.ProjectWorldToScreenUseCase
@@ -51,6 +52,10 @@ val appModule = module {
 
     factory {
         CalculateDistanceUseCase()
+    }
+
+    factory {
+        CalculateMassUseCase()
     }
 
     factory {
