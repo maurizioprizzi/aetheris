@@ -3,6 +3,8 @@ package org.aetheris.app.presentation.measurement
 import org.aetheris.app.domain.model.AnchorSlot
 import org.aetheris.app.domain.model.DimensionAxis
 import org.aetheris.app.domain.model.DistanceMeasurement
+import org.aetheris.app.domain.model.MassEstimate
+import org.aetheris.app.domain.model.MaterialDensity
 import org.aetheris.app.domain.model.Point3D
 import org.aetheris.app.domain.model.ScreenPoint2D
 import org.aetheris.app.domain.model.SpatialDimensions
@@ -19,7 +21,10 @@ import org.aetheris.app.domain.model.VolumeMeasurement
  * 3. Profundidade.
  *
  * Depois que os três eixos são concluídos, o aplicativo
- * pode calcular o volume aproximado da caixa delimitadora.
+ * calcula o volume aproximado da caixa delimitadora.
+ *
+ * Quando um material é selecionado, o volume e sua densidade
+ * podem ser utilizados para produzir uma estimativa de massa.
  */
 data class MeasurementUiState(
     val trackingStatus: TrackingStatus =
@@ -61,6 +66,20 @@ data class MeasurementUiState(
      * Volume calculado depois da confirmação dos três eixos.
      */
     val volumeMeasurement: VolumeMeasurement? = null,
+
+    /**
+     * Densidade do material selecionado para estimar a massa
+     * do objeto medido.
+     */
+    val selectedMaterialDensity: MaterialDensity? = null,
+
+    /**
+     * Massa estimada a partir do volume e da densidade.
+     *
+     * O resultado representa uma aproximação física e não
+     * uma pesagem direta ou uma medição de balança.
+     */
+    val massEstimate: MassEstimate? = null,
 
     /**
      * Posição projetada do indicador da dimensão atual.
@@ -173,11 +192,35 @@ data class MeasurementUiState(
                 volumeMeasurement == null
 
     /**
-     * Indica que todo o processo tridimensional foi concluído.
+     * Indica que as dimensões e o volume foram concluídos.
      */
     val hasCompleteSpatialMeasurement: Boolean
         get() = hasCompleteSpatialDimensions &&
                 volumeMeasurement != null
+
+    /**
+     * Indica que um material foi selecionado.
+     */
+    val hasSelectedMaterialDensity: Boolean
+        get() = selectedMaterialDensity != null
+
+    /**
+     * Indica que existem volume e densidade disponíveis,
+     * mas a estimativa de massa ainda não foi calculada.
+     */
+    val isReadyToCalculateMass: Boolean
+        get() = volumeMeasurement != null &&
+                selectedMaterialDensity != null &&
+                massEstimate == null
+
+    /**
+     * Indica que a estimativa física completa do objeto
+     * possui dimensões, volume, material e massa.
+     */
+    val hasCompleteObjectEstimate: Boolean
+        get() = hasCompleteSpatialMeasurement &&
+                selectedMaterialDensity != null &&
+                massEstimate != null
 
     val canPlaceAnchor: Boolean
         get() = isTracking &&
@@ -188,15 +231,17 @@ data class MeasurementUiState(
 
     /**
      * O reset também fica disponível depois que uma ou mais
-     * dimensões já foram confirmadas, mesmo que as âncoras
-     * da dimensão atual estejam vazias.
+     * dimensões foram confirmadas ou quando existem resultados
+     * físicos associados à medição.
      */
     val canResetMeasurement: Boolean
         get() = hasStartPoint ||
                 hasEndPoint ||
                 currentMeasurement != null ||
                 !spatialDimensions.isEmpty ||
-                volumeMeasurement != null
+                volumeMeasurement != null ||
+                selectedMaterialDensity != null ||
+                massEstimate != null
 
     val shouldShowBadge: Boolean
         get() = currentMeasurement != null &&

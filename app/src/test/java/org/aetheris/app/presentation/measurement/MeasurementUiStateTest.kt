@@ -4,6 +4,8 @@ import com.google.common.truth.Truth.assertThat
 import org.aetheris.app.domain.model.AnchorSlot
 import org.aetheris.app.domain.model.DimensionAxis
 import org.aetheris.app.domain.model.DistanceMeasurement
+import org.aetheris.app.domain.model.MassEstimate
+import org.aetheris.app.domain.model.MaterialDensity
 import org.aetheris.app.domain.model.Point3D
 import org.aetheris.app.domain.model.ScreenPoint2D
 import org.aetheris.app.domain.model.SpatialDimensions
@@ -32,6 +34,21 @@ class MeasurementUiStateTest {
 
         assertThat(state.volumeMeasurement)
             .isNull()
+
+        assertThat(state.selectedMaterialDensity)
+            .isNull()
+
+        assertThat(state.massEstimate)
+            .isNull()
+
+        assertThat(state.hasSelectedMaterialDensity)
+            .isFalse()
+
+        assertThat(state.isReadyToCalculateMass)
+            .isFalse()
+
+        assertThat(state.hasCompleteObjectEstimate)
+            .isFalse()
     }
 
     @Test
@@ -169,11 +186,7 @@ class MeasurementUiStateTest {
     fun `spatial measurement is complete when volume exists`() {
         val state = MeasurementUiState(
             spatialDimensions = completeDimensions(),
-            volumeMeasurement = VolumeMeasurement(
-                cubicMeters = 24f,
-                uncertaintyCubicMeters = 1f,
-                timestampMillis = FIXED_TIMESTAMP
-            )
+            volumeMeasurement = volume()
         )
 
         assertThat(state.hasCompleteSpatialDimensions)
@@ -183,6 +196,94 @@ class MeasurementUiStateTest {
             .isFalse()
 
         assertThat(state.hasCompleteSpatialMeasurement)
+            .isTrue()
+
+        assertThat(state.isReadyToCalculateMass)
+            .isFalse()
+
+        assertThat(state.canResetMeasurement)
+            .isTrue()
+    }
+
+    @Test
+    fun `volume without selected material is not ready for mass calculation`() {
+        val state = MeasurementUiState(
+            spatialDimensions = completeDimensions(),
+            volumeMeasurement = volume()
+        )
+
+        assertThat(state.hasCompleteSpatialMeasurement)
+            .isTrue()
+
+        assertThat(state.hasSelectedMaterialDensity)
+            .isFalse()
+
+        assertThat(state.isReadyToCalculateMass)
+            .isFalse()
+
+        assertThat(state.hasCompleteObjectEstimate)
+            .isFalse()
+    }
+
+    @Test
+    fun `volume and selected material are ready for mass calculation`() {
+        val state = MeasurementUiState(
+            spatialDimensions = completeDimensions(),
+            volumeMeasurement = volume(),
+            selectedMaterialDensity = materialDensity()
+        )
+
+        assertThat(state.hasSelectedMaterialDensity)
+            .isTrue()
+
+        assertThat(state.isReadyToCalculateMass)
+            .isTrue()
+
+        assertThat(state.massEstimate)
+            .isNull()
+
+        assertThat(state.hasCompleteObjectEstimate)
+            .isFalse()
+
+        assertThat(state.canResetMeasurement)
+            .isTrue()
+    }
+
+    @Test
+    fun `object estimate is complete when dimensions volume material and mass exist`() {
+        val state = MeasurementUiState(
+            spatialDimensions = completeDimensions(),
+            volumeMeasurement = volume(),
+            selectedMaterialDensity = materialDensity(),
+            massEstimate = massEstimate()
+        )
+
+        assertThat(state.hasCompleteSpatialMeasurement)
+            .isTrue()
+
+        assertThat(state.hasSelectedMaterialDensity)
+            .isTrue()
+
+        assertThat(state.isReadyToCalculateMass)
+            .isFalse()
+
+        assertThat(state.hasCompleteObjectEstimate)
+            .isTrue()
+
+        assertThat(state.canResetMeasurement)
+            .isTrue()
+    }
+
+    @Test
+    fun `selected material keeps reset available without spatial measurement`() {
+        val state = MeasurementUiState(
+            selectedMaterialDensity = materialDensity()
+        )
+
+        assertThat(state.hasCompleteSpatialMeasurement)
+            .isFalse()
+
+        assertThat(state.hasSelectedMaterialDensity)
             .isTrue()
 
         assertThat(state.canResetMeasurement)
@@ -289,6 +390,30 @@ class MeasurementUiStateTest {
             meters = meters,
             uncertaintyMeters = uncertaintyMeters,
             timestampMillis = FIXED_TIMESTAMP
+        )
+    }
+
+    private fun volume(): VolumeMeasurement {
+        return VolumeMeasurement(
+            cubicMeters = 24f,
+            uncertaintyCubicMeters = 1f,
+            timestampMillis = FIXED_TIMESTAMP
+        )
+    }
+
+    private fun materialDensity(): MaterialDensity {
+        return MaterialDensity(
+            materialName = "Material de teste",
+            kilogramsPerCubicMeter = 1_000f,
+            uncertaintyKilogramsPerCubicMeter = 25f
+        )
+    }
+
+    private fun massEstimate(): MassEstimate {
+        return MassEstimate(
+            kilograms = 24_000f,
+            confidenceIntervalKg = 1_166.19f,
+            densityUsedKgPerM3 = 1_000f
         )
     }
 
