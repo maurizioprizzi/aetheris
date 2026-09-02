@@ -8,6 +8,7 @@
 [![16 KB Compatibility](https://img.shields.io/badge/16_KB_Compatibility-Under_Validation-yellow.svg)](https://developer.android.com/guide/practices/page-sizes)
 [![Min SDK](https://img.shields.io/badge/Min_SDK-26-green.svg)](https://developer.android.com)
 [![Target SDK](https://img.shields.io/badge/Target_SDK-36-green.svg)](https://developer.android.com)
+[![Release](https://img.shields.io/badge/Release-v0.1.0--alpha-orange.svg)](https://github.com/maurizioprizzi/aetheris/releases/tag/v0.1.0-alpha)
 
 **Aetheris** is an open-source experimental spatial measurement platform for Android.
 
@@ -32,6 +33,7 @@ The project explores mobile spatial computing, real-time graphics, Unidirectiona
 | **Frame-affine placement queue** | Implemented | UI requests are queued and executed against the current ARCore frame on the OpenGL rendering thread. |
 | **Surface-probe throttling** | Implemented | Continuous conventional surface detection is limited to approximately 5 Hz. |
 | **Native anchor tracking** | Implemented | ARCore `Anchor` poses are resolved frame by frame as the SLAM map evolves. |
+| **Anchor placement provenance** | Implemented | Positions retain whether they originated from a plane, feature point, depth point, or Instant Placement. |
 | **Linear distance measurement** | Implemented | Euclidean distance with an explicit heuristic uncertainty model. |
 | **Sequential three-axis volume** | Implemented | Guided width, height, and depth capture with approximate volume calculation in cubic meters and liters. |
 | **Material-density selection** | Implemented | Explicit material selection using catalogued density and density uncertainty. |
@@ -40,7 +42,7 @@ The project explores mobile spatial computing, real-time graphics, Unidirectiona
 | **Floating Compose badge** | Implemented | Reactive screen-space badge following the current measurement midpoint. |
 | **Debug hit-test diagnostics** | Implemented | Debug-only `AetherisHitTest` logs for conventional hits, Instant Placement, and anchor creation. |
 | **Depth API** | Disabled | `DepthMode.DISABLED` is retained because the test device reports native `ComputeDisparity` failures. |
-| **Placement provenance in HUD** | Planned | Distinction between approximate Instant Placement and confirmed conventional geometry. |
+| **Placement provenance in HUD** | Planned | Visual warning distinguishing approximate Instant Placement from conventional geometry. |
 | **Multipoint polylines** | Planned | Sequential multi-node boundary tracking. |
 | **3D polygon area** | Planned | Coplanar surface-area calculation and mesh rendering. |
 | **Structured export** | Planned | Measurement export in JSON and CSV formats. |
@@ -57,8 +59,9 @@ flowchart TD
     D --> E{"Conventional hit valid?"}
     E -- Yes --> F["Plane, oriented Point,<br/>or DepthPoint"]
     E -- No --> G["Instant Placement fallback"]
-    F --> H["Native ARCore Anchor"]
-    G --> H
+    F --> P["Placement source"]
+    G --> P
+    P --> H["Native ARCore Anchor"]
     H --> I["StateFlow spatial state"]
     I --> J["Distance, volume,<br/>and mass models"]
     I --> K["OpenGL geometry"]
@@ -72,9 +75,11 @@ flowchart TD
 4. **Frame-affine execution:** `SpatialSensorRepositoryImpl` suspends the caller and processes the request during a subsequent `onFrameUpdate(frame)` invocation on the render thread.
 5. **Hit-test priority:** `ArCoreHitTestProcessor` prioritizes tracked planes inside their polygons, oriented feature points, and depth points.
 6. **Approximate fallback:** When conventional geometry is unavailable, explicit placement may use an `InstantPlacementPoint` with an initial approximate distance.
-7. **Native anchoring:** A successful hit is bound to an ARCore `Anchor`, whose pose is resolved on subsequent frames.
-8. **Domain calculation:** Pure Kotlin use cases calculate distance, approximate three-axis volume, and density-based mass estimates.
-9. **Rendering and projection:** OpenGL renders spatial geometry while the projection use case maps world coordinates into the Compose HUD.
+7. **Provenance classification:** The selected hit is classified as `PLANE`, `FEATURE_POINT`, `DEPTH_POINT`, or `INSTANT_PLACEMENT`.
+8. **Native anchoring:** A successful hit is bound to an ARCore `Anchor`, whose pose is resolved on subsequent frames while its original source is preserved.
+9. **Reactive propagation:** Position and provenance travel together through `SpatialFrameData`, `MeasurementViewModel`, and `MeasurementUiState`.
+10. **Domain calculation:** Pure Kotlin use cases calculate distance, approximate three-axis volume, and density-based mass estimates.
+11. **Rendering and projection:** OpenGL renders spatial geometry while the projection use case maps world coordinates into the Compose HUD.
 
 ---
 
@@ -126,7 +131,7 @@ The pure Kotlin domain is isolated from Android and ARCore APIs. Framework-speci
 | **Data / OpenGL** | `data/opengl` | Camera background and spatial geometry rendering | `BackgroundRenderer`, `SpatialLineRenderer` |
 | **Data / Repository** | `data/repository` | Frame-affine request coordination and reactive spatial state | `SpatialSensorRepositoryImpl` |
 | **Domain / Math** | `domain/math` | Framework-independent spatial line operations | `SpatialLineMath` |
-| **Domain / Models** | `domain/model` | Immutable measurement, geometry, density, volume, and mass models | `Point3D`, `DistanceMeasurement`, `SpatialDimensions`, `VolumeMeasurement`, `MaterialDensity`, `MaterialDensityCatalog`, `MassEstimate` |
+| **Domain / Models** | `domain/model` | Immutable measurement, geometry, provenance, density, volume, and mass models | `Point3D`, `AnchorPlacement`, `AnchorPlacementSource`, `DistanceMeasurement`, `SpatialDimensions`, `VolumeMeasurement`, `MaterialDensity`, `MaterialDensityCatalog`, `MassEstimate` |
 | **Domain / Repository** | `domain/repository` | Framework-independent spatial sensor contract | `SpatialSensorRepository` |
 | **Domain / Use cases** | `domain/usecase` | Distance, projection, dimensions, volume, and mass calculations | `CalculateDistanceUseCase`, `ProjectWorldToScreenUseCase`, `EstimateSpatialDimensionsUseCase`, `CalculateVolumeUseCase`, `CalculateMassUseCase` |
 | **Presentation / Components** | `presentation/components` | AR camera integration and reusable Compose interface elements | `ArCameraFeed`, `FloatingMeasurementBadge`, `MaterialDensitySelector` |
@@ -155,6 +160,7 @@ The current validation baseline includes:
 
 - A passing JVM unit-test suite.
 - Dedicated tests for domain models, mathematical operations, use cases, presentation state, ViewModel behavior, ARCore processors, and repository coordination.
+- Explicit regression coverage for placement-source classification, conventional-hit priority, provenance propagation, anchor replacement, paused tracking, cleanup, confirmation, and reset.
 - Android Lint passing without blocking errors.
 - Successful clean debug APK assembly.
 - Physical-device validation of approximate and conventional anchor placement.
@@ -183,9 +189,10 @@ After visual tracking matured, ARCore also returned a valid conventional oriente
 
 The ADR registry is available in [`docs/adr`](docs/adr/README.md).
 
-The first standalone record is:
+Available standalone records include:
 
 - [`ADR-016: Frame-Affine Placement Queue and Instant Placement Fallback`](docs/adr/ADR-016-frame-affine-placement.md)
+- `ADR-017: Anchor Placement Provenance and Approximation Semantics` documents the spatial-source model introduced after the first alpha release.
 
 Decisions ADR-001 through ADR-015 were originally recorded in `DEVLOG.md` and are being migrated gradually into standalone documents. The registry reports their migration status explicitly.
 
@@ -198,6 +205,14 @@ Detailed development history, device diagnostics, mathematical derivations, and 
 ---
 
 ## Build and installation
+
+### Pre-release download
+
+The first public pre-release is available on GitHub:
+
+- [`Aetheris v0.1.0-alpha`](https://github.com/maurizioprizzi/aetheris/releases/tag/v0.1.0-alpha)
+
+The downloadable artifact is a Debug APK intended for evaluation on compatible physical devices. It is not a production-signed release.
 
 ### Prerequisites
 
@@ -231,7 +246,7 @@ chmod +x gradlew
 
 - Measurements depend on ARCore tracking quality and the camera configuration of each device.
 - Instant Placement begins with an approximate distance and can update pose or apparent scale as tracking improves.
-- The interface does not yet distinguish approximate placement from confirmed conventional geometry.
+- Placement provenance is propagated through the data and presentation state, but the Compose HUD does not yet display its approximate-placement warning.
 - The current volume model is a three-axis bounding approximation, not object segmentation or mesh reconstruction.
 - Mass depends directly on the selected density and assumes the measured volume is occupied by that material.
 - Hollow, articulated, deformable, reflective, transparent, or low-texture objects can produce inaccurate results.
@@ -243,8 +258,9 @@ chmod +x gradlew
 
 ## Roadmap
 
-- Propagate placement provenance into the domain and repository state.
 - Distinguish approximate placement from confirmed conventional geometry in the HUD.
+- Preserve provenance with each confirmed dimension and future persisted measurement.
+- Define an explicit confirmation policy for measurements containing approximate points.
 - Validate repeated Activity and ARCore session pause/resume cycles.
 - Run controlled measurements against objects with known dimensions, volume, density, and mass.
 - Quantify repeatability, bias, and sensitivity to viewing distance, lighting, and surface texture.

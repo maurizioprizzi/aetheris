@@ -55,8 +55,8 @@ class MeasurementViewModel(
          * para converter coordenadas normalizadas em pixels.
          *
          * Sem esta atualização, normalizedToPixels() retorna null,
-         * isSurfaceDetected permanece false e o botão de criação
-         * de âncoras nunca é habilitado.
+         * isSurfaceDetected permanece false e a criação de âncoras
+         * não pode ser processada corretamente.
          */
         (spatialSensorRepository as? SpatialSensorRepositoryImpl)
             ?.updateViewportSize(
@@ -229,7 +229,9 @@ class MeasurementViewModel(
         _uiState.update { current ->
             current.copy(
                 selectedStartPoint = null,
+                selectedStartSource = null,
                 selectedEndPoint = null,
+                selectedEndSource = null,
                 currentMeasurement = null,
                 spatialDimensions = updatedDimensions,
                 volumeMeasurement = calculatedVolume,
@@ -286,7 +288,9 @@ class MeasurementViewModel(
         _uiState.update { current ->
             current.copy(
                 selectedStartPoint = null,
+                selectedStartSource = null,
                 selectedEndPoint = null,
+                selectedEndSource = null,
                 currentMeasurement = null,
                 badgePosition = null,
                 isAnchorPlacementInProgress = false
@@ -306,7 +310,9 @@ class MeasurementViewModel(
         _uiState.update { current ->
             current.copy(
                 selectedStartPoint = null,
+                selectedStartSource = null,
                 selectedEndPoint = null,
+                selectedEndSource = null,
                 currentMeasurement = null,
                 spatialDimensions = SpatialDimensions.EMPTY,
                 volumeMeasurement = null,
@@ -320,6 +326,9 @@ class MeasurementViewModel(
 
     /**
      * Observa o estado espacial emitido pelo repositório.
+     *
+     * As posições e suas respectivas origens são transferidas
+     * juntas para manter a consistência do estado apresentado.
      */
     private fun observeSpatialData() {
         viewModelScope.launch {
@@ -330,10 +339,16 @@ class MeasurementViewModel(
                         val startPoint =
                             spatialData.anchoredStartPoint
 
+                        val startSource =
+                            spatialData.anchoredStartSource
+
                         val endPoint =
                             spatialData.anchoredEndPoint
 
-                        val anchorsChanged =
+                        val endSource =
+                            spatialData.anchoredEndSource
+
+                        val anchorPositionsChanged =
                             startPoint !=
                                     current.selectedStartPoint ||
                                     endPoint !=
@@ -346,7 +361,7 @@ class MeasurementViewModel(
                                     null
                                 }
 
-                                anchorsChanged ||
+                                anchorPositionsChanged ||
                                         current.currentMeasurement ==
                                         null -> {
                                     calculateDistanceUseCase(
@@ -371,8 +386,12 @@ class MeasurementViewModel(
                                 spatialData.isSurfaceDetected,
                             selectedStartPoint =
                                 startPoint,
+                            selectedStartSource =
+                                startSource,
                             selectedEndPoint =
                                 endPoint,
+                            selectedEndSource =
+                                endSource,
                             currentMeasurement =
                                 measurement,
                             badgePosition =

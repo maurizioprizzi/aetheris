@@ -9,6 +9,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.setMain
+import org.aetheris.app.domain.model.AnchorPlacementSource
 import org.aetheris.app.domain.model.AnchorSlot
 import org.aetheris.app.domain.model.DimensionAxis
 import org.aetheris.app.domain.model.MaterialDensity
@@ -43,7 +44,9 @@ class MeasurementViewModelTest {
                     pointCount = 150,
                     isSurfaceDetected = true,
                     anchoredStartPoint = null,
-                    anchoredEndPoint = null
+                    anchoredStartSource = null,
+                    anchoredEndPoint = null,
+                    anchoredEndSource = null
                 )
             )
 
@@ -56,12 +59,16 @@ class MeasurementViewModelTest {
 
         fun updateAnchors(
             startPoint: Point3D?,
-            endPoint: Point3D?
+            startSource: AnchorPlacementSource? = null,
+            endPoint: Point3D?,
+            endSource: AnchorPlacementSource? = null
         ) {
             _stream.value =
                 _stream.value.copy(
                     anchoredStartPoint = startPoint,
-                    anchoredEndPoint = endPoint
+                    anchoredStartSource = startSource,
+                    anchoredEndPoint = endPoint,
+                    anchoredEndSource = endSource
                 )
         }
 
@@ -167,6 +174,124 @@ class MeasurementViewModelTest {
 
         assertThat(state.massEstimate)
             .isNull()
+
+        assertThat(state.selectedStartSource)
+            .isNull()
+
+        assertThat(state.selectedEndSource)
+            .isNull()
+    }
+
+    @Test
+    fun `repository anchor provenance is propagated to UI state`() {
+        val startPoint =
+            Point3D(
+                x = 1f,
+                y = 2f,
+                z = 3f
+            )
+
+        val endPoint =
+            Point3D(
+                x = 4f,
+                y = 5f,
+                z = 6f
+            )
+
+        fakeRepository.updateAnchors(
+            startPoint = startPoint,
+            startSource =
+                AnchorPlacementSource.PLANE,
+            endPoint = endPoint,
+            endSource =
+                AnchorPlacementSource.INSTANT_PLACEMENT
+        )
+
+        advanceUntilIdle()
+
+        val state =
+            viewModel.uiState.value
+
+        assertThat(state.selectedStartPoint)
+            .isEqualTo(startPoint)
+
+        assertThat(state.selectedStartSource)
+            .isEqualTo(
+                AnchorPlacementSource.PLANE
+            )
+
+        assertThat(state.selectedEndPoint)
+            .isEqualTo(endPoint)
+
+        assertThat(state.selectedEndSource)
+            .isEqualTo(
+                AnchorPlacementSource.INSTANT_PLACEMENT
+            )
+
+        assertThat(state.selectedStartPlacement)
+            .isNotNull()
+
+        assertThat(state.selectedEndPlacement)
+            .isNotNull()
+
+        assertThat(state.hasCompletePlacementProvenance)
+            .isTrue()
+
+        assertThat(state.hasApproximatePlacement)
+            .isTrue()
+
+        assertThat(state.currentMeasurement)
+            .isNotNull()
+    }
+
+    @Test
+    fun `source update is propagated when anchor position is unchanged`() {
+        val startPoint =
+            Point3D.ORIGIN
+
+        fakeRepository.updateAnchors(
+            startPoint = startPoint,
+            startSource =
+                AnchorPlacementSource.INSTANT_PLACEMENT,
+            endPoint = null,
+            endSource = null
+        )
+
+        advanceUntilIdle()
+
+        assertThat(
+            viewModel.uiState.value
+                .selectedStartSource
+        ).isEqualTo(
+            AnchorPlacementSource.INSTANT_PLACEMENT
+        )
+
+        fakeRepository.updateAnchors(
+            startPoint = startPoint,
+            startSource =
+                AnchorPlacementSource.PLANE,
+            endPoint = null,
+            endSource = null
+        )
+
+        advanceUntilIdle()
+
+        val state =
+            viewModel.uiState.value
+
+        assertThat(state.selectedStartPoint)
+            .isEqualTo(startPoint)
+
+        assertThat(state.selectedStartSource)
+            .isEqualTo(
+                AnchorPlacementSource.PLANE
+            )
+
+        assertThat(state.hasApproximatePlacement)
+            .isFalse()
+
+        assertThat(state.hasOnlyConventionalPlacements)
+            .isTrue()
     }
 
     @Test
@@ -209,6 +334,108 @@ class MeasurementViewModelTest {
 
         assertThat(state.viewportHeightPx)
             .isEqualTo(1920)
+    }
+
+    @Test
+    fun `clearing current dimension removes points and provenance`() {
+        fakeRepository.updateAnchors(
+            startPoint = Point3D.ORIGIN,
+            startSource =
+                AnchorPlacementSource.PLANE,
+            endPoint =
+                Point3D(
+                    x = 2f,
+                    y = 0f,
+                    z = 0f
+                ),
+            endSource =
+                AnchorPlacementSource.INSTANT_PLACEMENT
+        )
+
+        advanceUntilIdle()
+
+        assertThat(
+            viewModel.uiState.value
+                .hasApproximatePlacement
+        ).isTrue()
+
+        viewModel.onClearCurrentDimension()
+
+        val state =
+            viewModel.uiState.value
+
+        assertThat(state.selectedStartPoint)
+            .isNull()
+
+        assertThat(state.selectedStartSource)
+            .isNull()
+
+        assertThat(state.selectedEndPoint)
+            .isNull()
+
+        assertThat(state.selectedEndSource)
+            .isNull()
+
+        assertThat(state.currentMeasurement)
+            .isNull()
+
+        assertThat(state.hasApproximatePlacement)
+            .isFalse()
+
+        assertThat(
+            fakeRepository.clearAnchorsCallCount
+        ).isEqualTo(1)
+    }
+
+    @Test
+    fun `confirming dimension removes active anchor provenance`() {
+        fakeRepository.updateAnchors(
+            startPoint = Point3D.ORIGIN,
+            startSource =
+                AnchorPlacementSource.PLANE,
+            endPoint =
+                Point3D(
+                    x = 2f,
+                    y = 0f,
+                    z = 0f
+                ),
+            endSource =
+                AnchorPlacementSource.FEATURE_POINT
+        )
+
+        advanceUntilIdle()
+
+        assertThat(
+            viewModel.uiState.value
+                .hasCompletePlacementProvenance
+        ).isTrue()
+
+        viewModel.onConfirmCurrentDimension()
+
+        val state =
+            viewModel.uiState.value
+
+        assertThat(state.selectedStartPoint)
+            .isNull()
+
+        assertThat(state.selectedStartSource)
+            .isNull()
+
+        assertThat(state.selectedEndPoint)
+            .isNull()
+
+        assertThat(state.selectedEndSource)
+            .isNull()
+
+        assertThat(state.currentMeasurement)
+            .isNull()
+
+        assertThat(state.spatialDimensions.width)
+            .isNotNull()
+
+        assertThat(
+            fakeRepository.clearAnchorsCallCount
+        ).isEqualTo(1)
     }
 
     @Test
@@ -419,12 +646,22 @@ class MeasurementViewModelTest {
     }
 
     @Test
-    fun `reset clears dimensions volume material and mass`() {
+    fun `reset clears dimensions volume material mass and provenance`() {
         completeSpatialMeasurement()
 
         viewModel.onMaterialDensitySelected(
             materialDensity = testMaterial()
         )
+
+        fakeRepository.updateAnchors(
+            startPoint = Point3D.ORIGIN,
+            startSource =
+                AnchorPlacementSource.INSTANT_PLACEMENT,
+            endPoint = null,
+            endSource = null
+        )
+
+        advanceUntilIdle()
 
         viewModel.onResetMeasurements()
 
@@ -434,7 +671,13 @@ class MeasurementViewModelTest {
         assertThat(state.selectedStartPoint)
             .isNull()
 
+        assertThat(state.selectedStartSource)
+            .isNull()
+
         assertThat(state.selectedEndPoint)
+            .isNull()
+
+        assertThat(state.selectedEndSource)
             .isNull()
 
         assertThat(state.currentMeasurement)
@@ -454,6 +697,9 @@ class MeasurementViewModelTest {
 
         assertThat(state.badgePosition)
             .isNull()
+
+        assertThat(state.hasApproximatePlacement)
+            .isFalse()
 
         assertThat(
             fakeRepository.clearAnchorsCallCount
@@ -479,11 +725,16 @@ class MeasurementViewModelTest {
     ) {
         fakeRepository.updateAnchors(
             startPoint = Point3D.ORIGIN,
-            endPoint = Point3D(
-                x = meters,
-                y = 0f,
-                z = 0f
-            )
+            startSource =
+                AnchorPlacementSource.PLANE,
+            endPoint =
+                Point3D(
+                    x = meters,
+                    y = 0f,
+                    z = 0f
+                ),
+            endSource =
+                AnchorPlacementSource.FEATURE_POINT
         )
 
         advanceUntilIdle()
@@ -493,11 +744,18 @@ class MeasurementViewModelTest {
                 .currentMeasurement
         ).isNotNull()
 
+        assertThat(
+            viewModel.uiState.value
+                .hasCompletePlacementProvenance
+        ).isTrue()
+
         viewModel.onConfirmCurrentDimension()
 
         fakeRepository.updateAnchors(
             startPoint = null,
-            endPoint = null
+            startSource = null,
+            endPoint = null,
+            endSource = null
         )
 
         advanceUntilIdle()

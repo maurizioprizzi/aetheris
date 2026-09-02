@@ -30,6 +30,25 @@ They are being migrated gradually into standalone ADR documents. Until each migr
 | ADR-014 | Defensive ARCore/OpenGL resource management and Depth fallback | Implemented | Pending |
 | ADR-015 | Sequential axis capture and uncertainty-aware AABB volume | Implemented | Pending |
 | [ADR-016](ADR-016-frame-affine-placement.md) | Frame-affine placement queue and Instant Placement fallback | Implemented | Available |
+| [ADR-017](ADR-017-anchor-placement-provenance.md) | Anchor placement provenance and approximation semantics | Implemented | Available |
+
+## Available standalone records
+
+### ADR-016: Frame-Affine Placement Queue and Instant Placement Fallback
+
+Documents the decision to queue UI placement requests and execute them against the current ARCore frame on the OpenGL rendering thread.
+
+It also defines the conventional-hit priority, controlled Instant Placement fallback, surface-probe throttling, timeout behavior, and native resource lifecycle.
+
+- [Read ADR-016](ADR-016-frame-affine-placement.md)
+
+### ADR-017: Anchor Placement Provenance and Approximation Semantics
+
+Documents the decision to preserve the spatial evidence that produced each anchor.
+
+It defines the classification of planes, feature points, depth points, and Instant Placement; the propagation of that source through repository and presentation state; compatibility rules; approximation semantics; and cleanup invariants.
+
+- [Read ADR-017](ADR-017-anchor-placement-provenance.md)
 
 ## ADR lifecycle
 
@@ -41,27 +60,11 @@ Each standalone ADR uses one of the following statuses:
 - **Superseded:** replaced by a newer architectural decision.
 - **Deprecated:** retained for historical context but no longer recommended.
 
+An ADR can describe a decision as both accepted and implemented when the decision has been approved and is already reflected in the source code.
+
 ## Naming convention
 
-Standalone records follow this filename format: `ADR-NNN-short-decision-title.md`.
+Standalone records follow this filename format:
 
-For example: `ADR-016-frame-affine-placement.md`.
-
-## Documentation principles
-
-Aetheris ADRs should:
-
-1. Describe the engineering problem without depending on hidden project history.
-2. State the selected decision explicitly.
-3. Explain the relevant technical and scientific constraints.
-4. Record important alternatives that were rejected.
-5. Describe positive and negative consequences.
-6. Distinguish implemented behavior from planned work.
-7. Avoid presenting experimental measurements as certified metrology.
-
-## Historical record
-
-The chronological development history, hardware experiments, test results, and early architecture notes remain available in the repository root:
-
-- [`DEVLOG.md`](../../DEVLOG.md)
-- [`README.md`](../../README.md)
+```text
+ADR-NNN-short-decision-title.md

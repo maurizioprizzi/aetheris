@@ -1,5 +1,7 @@
 package org.aetheris.app.presentation.measurement
 
+import org.aetheris.app.domain.model.AnchorPlacement
+import org.aetheris.app.domain.model.AnchorPlacementSource
 import org.aetheris.app.domain.model.AnchorSlot
 import org.aetheris.app.domain.model.DimensionAxis
 import org.aetheris.app.domain.model.DistanceMeasurement
@@ -25,6 +27,11 @@ import org.aetheris.app.domain.model.VolumeMeasurement
  *
  * Quando um material é selecionado, o volume e sua densidade
  * podem ser utilizados para produzir uma estimativa de massa.
+ *
+ * O estado também preserva a procedência das âncoras da
+ * dimensão atual. Isso permite que a interface diferencie
+ * posições confirmadas por geometria convencional de posições
+ * aproximadas produzidas pelo Instant Placement.
  */
 data class MeasurementUiState(
     val trackingStatus: TrackingStatus =
@@ -50,9 +57,25 @@ data class MeasurementUiState(
     val selectedStartPoint: Point3D? = null,
 
     /**
+     * Origem espacial do primeiro ponto.
+     *
+     * Pode permanecer nula para preservar compatibilidade com
+     * estados ou testes criados antes da introdução da procedência.
+     */
+    val selectedStartSource: AnchorPlacementSource? = null,
+
+    /**
      * Segundo ponto da dimensão que está sendo medida.
      */
     val selectedEndPoint: Point3D? = null,
+
+    /**
+     * Origem espacial do segundo ponto.
+     *
+     * Pode permanecer nula para preservar compatibilidade com
+     * estados ou testes criados antes da introdução da procedência.
+     */
+    val selectedEndSource: AnchorPlacementSource? = null,
 
     /**
      * Distância entre os dois pontos da dimensão atual.
@@ -108,6 +131,20 @@ data class MeasurementUiState(
         require(viewportHeightPx >= 0) {
             "A altura da viewport não pode ser negativa."
         }
+
+        require(
+            selectedStartSource == null ||
+                    selectedStartPoint != null
+        ) {
+            "A origem da âncora inicial exige um ponto inicial."
+        }
+
+        require(
+            selectedEndSource == null ||
+                    selectedEndPoint != null
+        ) {
+            "A origem da âncora final exige um ponto final."
+        }
     }
 
     val isTracking: Boolean
@@ -124,11 +161,96 @@ data class MeasurementUiState(
         get() = selectedEndPoint != null
 
     /**
+     * Primeiro posicionamento completo, contendo sua
+     * coordenada mundial e sua procedência.
+     *
+     * Retorna null enquanto o ponto ou sua origem
+     * ainda não estiver disponível.
+     */
+    val selectedStartPlacement: AnchorPlacement?
+        get() {
+            val point =
+                selectedStartPoint
+                    ?: return null
+
+            val source =
+                selectedStartSource
+                    ?: return null
+
+            return AnchorPlacement(
+                position = point,
+                source = source
+            )
+        }
+
+    /**
+     * Segundo posicionamento completo, contendo sua
+     * coordenada mundial e sua procedência.
+     *
+     * Retorna null enquanto o ponto ou sua origem
+     * ainda não estiver disponível.
+     */
+    val selectedEndPlacement: AnchorPlacement?
+        get() {
+            val point =
+                selectedEndPoint
+                    ?: return null
+
+            val source =
+                selectedEndSource
+                    ?: return null
+
+            return AnchorPlacement(
+                position = point,
+                source = source
+            )
+        }
+
+    /**
      * Quantidade de âncoras da dimensão atualmente ativa.
      */
     val anchorCount: Int
         get() = (if (hasStartPoint) 1 else 0) +
                 (if (hasEndPoint) 1 else 0)
+
+    /**
+     * Indica que todas as âncoras existentes possuem
+     * sua procedência espacial identificada.
+     *
+     * Um estado sem âncoras não é considerado como tendo
+     * procedência completa.
+     */
+    val hasCompletePlacementProvenance: Boolean
+        get() = anchorCount > 0 &&
+                (!hasStartPoint ||
+                        selectedStartSource != null) &&
+                (!hasEndPoint ||
+                        selectedEndSource != null)
+
+    /**
+     * Indica que pelo menos uma das âncoras da dimensão
+     * atual foi criada por Instant Placement.
+     */
+    val hasApproximatePlacement: Boolean
+        get() =
+            selectedStartSource?.isApproximate == true ||
+                    selectedEndSource?.isApproximate == true
+
+    /**
+     * Indica que existem âncoras e que todas elas foram
+     * obtidas por fontes convencionais do ARCore.
+     */
+    val hasOnlyConventionalPlacements: Boolean
+        get() = anchorCount > 0 &&
+                hasCompletePlacementProvenance &&
+                !hasApproximatePlacement
+
+    /**
+     * Indica que a interface deve informar que a dimensão
+     * atual contém pelo menos um ponto aproximado.
+     */
+    val shouldShowApproximatePlacementWarning: Boolean
+        get() = hasApproximatePlacement
 
     /**
      * Indica que os dois pontos da dimensão atual
@@ -177,6 +299,9 @@ data class MeasurementUiState(
     /**
      * Permite confirmar a distância atual como medição
      * do eixo que está ativo.
+     *
+     * Uma medição aproximada continua confirmável, mas sua
+     * natureza será explicitamente apresentada pela interface.
      */
     val canConfirmCurrentDimension: Boolean
         get() = hasCompleteMeasurement &&
@@ -247,7 +372,7 @@ data class MeasurementUiState(
 
     /**
      * A criação de âncoras depende do rastreamento da câmera,
-     * mas não exige mais que um plano convencional esteja
+     * mas não exige que um plano convencional esteja
      * previamente detectado.
      *
      * Quando não houver superfície real, o processador poderá
