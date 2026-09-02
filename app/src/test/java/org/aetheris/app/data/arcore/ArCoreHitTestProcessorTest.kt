@@ -2,8 +2,10 @@ package org.aetheris.app.data.arcore
 
 import com.google.ar.core.Anchor
 import com.google.ar.core.Camera
+import com.google.ar.core.DepthPoint
 import com.google.ar.core.Frame
 import com.google.ar.core.HitResult
+import com.google.ar.core.InstantPlacementPoint
 import com.google.ar.core.Plane
 import com.google.ar.core.Point
 import com.google.ar.core.Pose
@@ -13,7 +15,9 @@ import com.google.common.truth.Truth.assertThat
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.verify
+import org.aetheris.app.domain.model.AnchorPlacementSource
 import org.aetheris.app.domain.model.Point3D
+import org.junit.Assert.assertThrows
 import org.junit.Before
 import org.junit.Test
 
@@ -25,7 +29,9 @@ class ArCoreHitTestProcessorTest {
 
     @Before
     fun setUp() {
-        processor = ArCoreHitTestProcessor()
+        processor = ArCoreHitTestProcessor(
+            diagnosticsEnabled = false
+        )
 
         frame = mockk()
         camera = mockk()
@@ -37,34 +43,41 @@ class ArCoreHitTestProcessorTest {
         every {
             camera.trackingState
         } returns TrackingState.TRACKING
+
+        every {
+            frame.hitTest(any(), any())
+        } returns emptyList()
+
+        every {
+            frame.hitTestInstantPlacement(
+                any(),
+                any(),
+                any()
+            )
+        } returns emptyList()
     }
 
     @Test
-    fun `performHitTest returns point when tracked plane contains hit pose`() {
+    fun `performHitTest preserves legacy point return for valid plane`() {
         val pose = createPose(
-            x = 1.0f,
-            y = 2.0f,
-            z = -3.0f
+            x = 1f,
+            y = 2f,
+            z = -3f
         )
 
-        val plane: Plane = mockk {
-            every {
-                trackingState
-            } returns TrackingState.TRACKING
+        val plane = createPlane(
+            pose = pose,
+            isPoseInPolygon = true
+        )
 
-            every {
-                isPoseInPolygon(pose)
-            } returns true
-        }
-
-        val hitResult = createHitResult(
+        val hit = createHitResult(
             trackable = plane,
             pose = pose
         )
 
         every {
             frame.hitTest(540f, 960f)
-        } returns listOf(hitResult)
+        } returns listOf(hit)
 
         val result = processor.performHitTest(
             frame = frame,
@@ -74,23 +87,64 @@ class ArCoreHitTestProcessorTest {
 
         assertThat(result).isEqualTo(
             Point3D(
-                x = 1.0f,
-                y = 2.0f,
-                z = -3.0f
+                x = 1f,
+                y = 2f,
+                z = -3f
             )
         )
-
-        verify(exactly = 1) {
-            frame.hitTest(540f, 960f)
-        }
     }
 
     @Test
-    fun `performHitTest returns point when tracked feature point exists`() {
+    fun `performHitTestWithSource identifies plane`() {
         val pose = createPose(
-            x = 4.0f,
-            y = 5.0f,
-            z = -6.0f
+            x = 1f,
+            y = 2f,
+            z = -3f
+        )
+
+        val plane = createPlane(
+            pose = pose,
+            isPoseInPolygon = true
+        )
+
+        every {
+            frame.hitTest(540f, 960f)
+        } returns listOf(
+            createHitResult(
+                trackable = plane,
+                pose = pose
+            )
+        )
+
+        val result = requireNotNull(
+            processor.performHitTestWithSource(
+                frame = frame,
+                xPx = 540f,
+                yPx = 960f
+            )
+        )
+
+        assertThat(result.position).isEqualTo(
+            Point3D(
+                x = 1f,
+                y = 2f,
+                z = -3f
+            )
+        )
+
+        assertThat(result.source)
+            .isEqualTo(AnchorPlacementSource.PLANE)
+
+        assertThat(result.isConventional)
+            .isTrue()
+    }
+
+    @Test
+    fun `performHitTestWithSource identifies oriented feature point`() {
+        val pose = createPose(
+            x = 4f,
+            y = 5f,
+            z = -6f
         )
 
         val point: Point = mockk {
@@ -100,166 +154,264 @@ class ArCoreHitTestProcessorTest {
 
             every {
                 orientationMode
-            } returns Point.OrientationMode.ESTIMATED_SURFACE_NORMAL
+            } returns Point.OrientationMode
+                .ESTIMATED_SURFACE_NORMAL
         }
-
-        val hitResult = createHitResult(
-            trackable = point,
-            pose = pose
-        )
 
         every {
             frame.hitTest(540f, 960f)
-        } returns listOf(hitResult)
-
-        val result = processor.performHitTest(
-            frame = frame,
-            xPx = 540f,
-            yPx = 960f
-        )
-
-        assertThat(result).isEqualTo(
-            Point3D(
-                x = 4.0f,
-                y = 5.0f,
-                z = -6.0f
+        } returns listOf(
+            createHitResult(
+                trackable = point,
+                pose = pose
             )
         )
+
+        val result = requireNotNull(
+            processor.performHitTestWithSource(
+                frame = frame,
+                xPx = 540f,
+                yPx = 960f
+            )
+        )
+
+        assertThat(result.position).isEqualTo(
+            Point3D(
+                x = 4f,
+                y = 5f,
+                z = -6f
+            )
+        )
+
+        assertThat(result.source)
+            .isEqualTo(
+                AnchorPlacementSource.FEATURE_POINT
+            )
     }
 
     @Test
-    fun `performHitTest ignores plane when pose is outside polygon`() {
-        val pose = createPose()
+    fun `performHitTestWithSource identifies depth point`() {
+        val pose = createPose(
+            x = 0.5f,
+            y = 1f,
+            z = -2f
+        )
 
-        val plane: Plane = mockk {
+        val depthPoint: DepthPoint = mockk {
             every {
                 trackingState
             } returns TrackingState.TRACKING
-
-            every {
-                isPoseInPolygon(pose)
-            } returns false
         }
-
-        val hitResult = createHitResult(
-            trackable = plane,
-            pose = pose
-        )
 
         every {
             frame.hitTest(540f, 960f)
-        } returns listOf(hitResult)
-
-        val result = processor.performHitTest(
-            frame = frame,
-            xPx = 540f,
-            yPx = 960f
+        } returns listOf(
+            createHitResult(
+                trackable = depthPoint,
+                pose = pose
+            )
         )
 
-        assertThat(result).isNull()
+        val result = requireNotNull(
+            processor.performHitTestWithSource(
+                frame = frame,
+                xPx = 540f,
+                yPx = 960f
+            )
+        )
+
+        assertThat(result.source)
+            .isEqualTo(
+                AnchorPlacementSource.DEPTH_POINT
+            )
+
+        assertThat(result.usesDepth)
+            .isTrue()
     }
 
     @Test
-    fun `performHitTest ignores trackable when tracking is paused`() {
-        val pose = createPose()
+    fun `performHitTestWithSource uses instant placement fallback`() {
+        val pose = createPose(
+            x = 0f,
+            y = 0f,
+            z = -1.5f
+        )
 
-        val plane: Plane = mockk {
+        val instantPoint: InstantPlacementPoint = mockk {
             every {
                 trackingState
-            } returns TrackingState.PAUSED
+            } returns TrackingState.TRACKING
         }
 
-        val hitResult = createHitResult(
-            trackable = plane,
-            pose = pose
-        )
-
-        every {
-            frame.hitTest(540f, 960f)
-        } returns listOf(hitResult)
-
-        val result = processor.performHitTest(
-            frame = frame,
-            xPx = 540f,
-            yPx = 960f
-        )
-
-        assertThat(result).isNull()
-    }
-
-    @Test
-    fun `performHitTest returns null when hit test is empty`() {
         every {
             frame.hitTest(540f, 960f)
         } returns emptyList()
 
-        val result = processor.performHitTest(
-            frame = frame,
-            xPx = 540f,
-            yPx = 960f
+        every {
+            frame.hitTestInstantPlacement(
+                540f,
+                960f,
+                1.5f
+            )
+        } returns listOf(
+            createHitResult(
+                trackable = instantPoint,
+                pose = pose
+            )
         )
 
-        assertThat(result).isNull()
+        val result = requireNotNull(
+            processor.performHitTestWithSource(
+                frame = frame,
+                xPx = 540f,
+                yPx = 960f
+            )
+        )
+
+        assertThat(result.position).isEqualTo(
+            Point3D(
+                x = 0f,
+                y = 0f,
+                z = -1.5f
+            )
+        )
+
+        assertThat(result.source)
+            .isEqualTo(
+                AnchorPlacementSource.INSTANT_PLACEMENT
+            )
+
+        assertThat(result.isApproximate)
+            .isTrue()
     }
 
     @Test
-    fun `performHitTest returns null when ARCore throws exception`() {
+    fun `conventional hit has priority over instant placement`() {
+        val pose = createPose()
+
+        val plane = createPlane(
+            pose = pose,
+            isPoseInPolygon = true
+        )
+
         every {
             frame.hitTest(540f, 960f)
-        } throws IllegalStateException("ARCore indisponível")
-
-        val result = processor.performHitTest(
-            frame = frame,
-            xPx = 540f,
-            yPx = 960f
+        } returns listOf(
+            createHitResult(
+                trackable = plane,
+                pose = pose
+            )
         )
 
-        assertThat(result).isNull()
+        val result = requireNotNull(
+            processor.performHitTestWithSource(
+                frame = frame,
+                xPx = 540f,
+                yPx = 960f
+            )
+        )
+
+        assertThat(result.source)
+            .isEqualTo(AnchorPlacementSource.PLANE)
+
+        verify(exactly = 0) {
+            frame.hitTestInstantPlacement(
+                any(),
+                any(),
+                any()
+            )
+        }
     }
 
     @Test
-    fun `createAnchorAt returns anchor for valid tracked plane`() {
-        val pose = createPose()
-        val anchor: Anchor = mockk()
+    fun `invalid plane falls back to instant placement`() {
+        val planePose = createPose()
 
-        val plane: Plane = mockk {
+        val plane = createPlane(
+            pose = planePose,
+            isPoseInPolygon = false
+        )
+
+        val instantPose = createPose(
+            z = -1.5f
+        )
+
+        val instantPoint: InstantPlacementPoint = mockk {
+            every {
+                trackingState
+            } returns TrackingState.TRACKING
+        }
+
+        every {
+            frame.hitTest(540f, 960f)
+        } returns listOf(
+            createHitResult(
+                trackable = plane,
+                pose = planePose
+            )
+        )
+
+        every {
+            frame.hitTestInstantPlacement(
+                540f,
+                960f,
+                1.5f
+            )
+        } returns listOf(
+            createHitResult(
+                trackable = instantPoint,
+                pose = instantPose
+            )
+        )
+
+        val result = requireNotNull(
+            processor.performHitTestWithSource(
+                frame = frame,
+                xPx = 540f,
+                yPx = 960f
+            )
+        )
+
+        assertThat(result.source)
+            .isEqualTo(
+                AnchorPlacementSource.INSTANT_PLACEMENT
+            )
+    }
+
+    @Test
+    fun `feature point without surface normal is rejected`() {
+        val pose = createPose()
+
+        val point: Point = mockk {
             every {
                 trackingState
             } returns TrackingState.TRACKING
 
             every {
-                isPoseInPolygon(pose)
-            } returns true
+                orientationMode
+            } returns Point.OrientationMode.INITIALIZED_TO_IDENTITY
         }
-
-        val hitResult = createHitResult(
-            trackable = plane,
-            pose = pose
-        )
-
-        every {
-            hitResult.createAnchor()
-        } returns anchor
 
         every {
             frame.hitTest(540f, 960f)
-        } returns listOf(hitResult)
+        } returns listOf(
+            createHitResult(
+                trackable = point,
+                pose = pose
+            )
+        )
 
-        val result = processor.createAnchorAt(
+        val result = processor.performHitTestWithSource(
             frame = frame,
             xPx = 540f,
             yPx = 960f
         )
 
-        assertThat(result).isSameInstanceAs(anchor)
-
-        verify(exactly = 1) {
-            hitResult.createAnchor()
-        }
+        assertThat(result).isNull()
     }
 
     @Test
-    fun `createAnchorAt does not create anchor for invalid plane`() {
+    fun `paused trackable is rejected`() {
         val pose = createPose()
 
         val plane: Plane = mockk {
@@ -268,16 +420,31 @@ class ArCoreHitTestProcessorTest {
             } returns TrackingState.PAUSED
         }
 
-        val hitResult = createHitResult(
-            trackable = plane,
-            pose = pose
-        )
-
         every {
             frame.hitTest(540f, 960f)
-        } returns listOf(hitResult)
+        } returns listOf(
+            createHitResult(
+                trackable = plane,
+                pose = pose
+            )
+        )
 
-        val result = processor.createAnchorAt(
+        val result = processor.performHitTestWithSource(
+            frame = frame,
+            xPx = 540f,
+            yPx = 960f
+        )
+
+        assertThat(result).isNull()
+    }
+
+    @Test
+    fun `request is rejected when camera is not tracking`() {
+        every {
+            camera.trackingState
+        } returns TrackingState.PAUSED
+
+        val result = processor.performHitTestWithSource(
             frame = frame,
             xPx = 540f,
             yPx = 960f
@@ -286,32 +453,207 @@ class ArCoreHitTestProcessorTest {
         assertThat(result).isNull()
 
         verify(exactly = 0) {
-            hitResult.createAnchor()
+            frame.hitTest(any(), any())
+        }
+
+        verify(exactly = 0) {
+            frame.hitTestInstantPlacement(
+                any(),
+                any(),
+                any()
+            )
         }
     }
 
     @Test
-    fun `hasValidSurfaceAt returns true when valid surface exists`() {
-        val pose = createPose()
+    fun `invalid screen coordinates are rejected before frame access`() {
+        val result = processor.performHitTestWithSource(
+            frame = frame,
+            xPx = Float.NaN,
+            yPx = -1f
+        )
 
-        val plane: Plane = mockk {
-            every {
-                trackingState
-            } returns TrackingState.TRACKING
+        assertThat(result).isNull()
 
-            every {
-                isPoseInPolygon(pose)
-            } returns true
+        verify(exactly = 0) {
+            frame.hitTest(any(), any())
         }
+    }
 
-        val hitResult = createHitResult(
+    @Test
+    fun `ARCore runtime failure returns null`() {
+        every {
+            frame.hitTest(540f, 960f)
+        } throws IllegalStateException(
+            "ARCore indisponível"
+        )
+
+        val result = processor.performHitTestWithSource(
+            frame = frame,
+            xPx = 540f,
+            yPx = 960f
+        )
+
+        assertThat(result).isNull()
+    }
+
+    @Test
+    fun `createAnchorAt preserves legacy anchor return`() {
+        val pose = createPose()
+        val anchor: Anchor = mockk()
+
+        val plane = createPlane(
+            pose = pose,
+            isPoseInPolygon = true
+        )
+
+        val hit = createHitResult(
             trackable = plane,
             pose = pose
         )
 
         every {
+            hit.createAnchor()
+        } returns anchor
+
+        every {
             frame.hitTest(540f, 960f)
-        } returns listOf(hitResult)
+        } returns listOf(hit)
+
+        val result = processor.createAnchorAt(
+            frame = frame,
+            xPx = 540f,
+            yPx = 960f
+        )
+
+        assertThat(result)
+            .isSameInstanceAs(anchor)
+
+        verify(exactly = 1) {
+            hit.createAnchor()
+        }
+    }
+
+    @Test
+    fun `createAnchorAtWithSource returns anchor and plane source`() {
+        val pose = createPose()
+        val anchor: Anchor = mockk()
+
+        val plane = createPlane(
+            pose = pose,
+            isPoseInPolygon = true
+        )
+
+        val hit = createHitResult(
+            trackable = plane,
+            pose = pose
+        )
+
+        every {
+            hit.createAnchor()
+        } returns anchor
+
+        every {
+            frame.hitTest(540f, 960f)
+        } returns listOf(hit)
+
+        val result = requireNotNull(
+            processor.createAnchorAtWithSource(
+                frame = frame,
+                xPx = 540f,
+                yPx = 960f
+            )
+        )
+
+        assertThat(result.anchor)
+            .isSameInstanceAs(anchor)
+
+        assertThat(result.source)
+            .isEqualTo(AnchorPlacementSource.PLANE)
+
+        assertThat(result.isApproximate)
+            .isFalse()
+    }
+
+    @Test
+    fun `createAnchorAtWithSource identifies instant placement`() {
+        val pose = createPose(
+            z = -1.5f
+        )
+
+        val anchor: Anchor = mockk()
+
+        val instantPoint: InstantPlacementPoint = mockk {
+            every {
+                trackingState
+            } returns TrackingState.TRACKING
+        }
+
+        val hit = createHitResult(
+            trackable = instantPoint,
+            pose = pose
+        )
+
+        every {
+            hit.createAnchor()
+        } returns anchor
+
+        every {
+            frame.hitTestInstantPlacement(
+                540f,
+                960f,
+                1.5f
+            )
+        } returns listOf(hit)
+
+        val result = requireNotNull(
+            processor.createAnchorAtWithSource(
+                frame = frame,
+                xPx = 540f,
+                yPx = 960f
+            )
+        )
+
+        assertThat(result.anchor)
+            .isSameInstanceAs(anchor)
+
+        assertThat(result.source)
+            .isEqualTo(
+                AnchorPlacementSource.INSTANT_PLACEMENT
+            )
+
+        assertThat(result.isApproximate)
+            .isTrue()
+    }
+
+    @Test
+    fun `createAnchorAtWithSource does not create anchor without valid hit`() {
+        val result = processor.createAnchorAtWithSource(
+            frame = frame,
+            xPx = 540f,
+            yPx = 960f
+        )
+
+        assertThat(result).isNull()
+    }
+
+    @Test
+    fun `surface probe accepts conventional geometry`() {
+        val pose = createPose()
+
+        val plane = createPlane(
+            pose = pose,
+            isPoseInPolygon = true
+        )
+
+        every {
+            frame.hitTest(540f, 960f)
+        } returns listOf(
+            createHitResult(
+                trackable = plane,
+                pose = pose
+            )
+        )
 
         val result = processor.hasValidSurfaceAt(
             frame = frame,
@@ -323,11 +665,7 @@ class ArCoreHitTestProcessorTest {
     }
 
     @Test
-    fun `hasValidSurfaceAt returns false when no valid surface exists`() {
-        every {
-            frame.hitTest(540f, 960f)
-        } returns emptyList()
-
+    fun `surface probe never uses instant placement`() {
         val result = processor.hasValidSurfaceAt(
             frame = frame,
             xPx = 540f,
@@ -335,17 +673,69 @@ class ArCoreHitTestProcessorTest {
         )
 
         assertThat(result).isFalse()
+
+        verify(exactly = 0) {
+            frame.hitTestInstantPlacement(
+                any(),
+                any(),
+                any()
+            )
+        }
+    }
+
+    @Test
+    fun `invalid approximate distance is rejected`() {
+        assertThrows(
+            IllegalArgumentException::class.java
+        ) {
+            ArCoreHitTestProcessor(
+                approximateDistanceMeters = 0f,
+                diagnosticsEnabled = false
+            )
+        }
+
+        assertThrows(
+            IllegalArgumentException::class.java
+        ) {
+            ArCoreHitTestProcessor(
+                approximateDistanceMeters = Float.NaN,
+                diagnosticsEnabled = false
+            )
+        }
+    }
+
+    private fun createPlane(
+        pose: Pose,
+        isPoseInPolygon: Boolean
+    ): Plane {
+        return mockk {
+            every {
+                trackingState
+            } returns TrackingState.TRACKING
+
+            every {
+                isPoseInPolygon(pose)
+            } returns isPoseInPolygon
+        }
     }
 
     private fun createPose(
-        x: Float = 0.0f,
-        y: Float = 0.0f,
-        z: Float = 0.0f
+        x: Float = 0f,
+        y: Float = 0f,
+        z: Float = 0f
     ): Pose {
         return mockk {
-            every { tx() } returns x
-            every { ty() } returns y
-            every { tz() } returns z
+            every {
+                tx()
+            } returns x
+
+            every {
+                ty()
+            } returns y
+
+            every {
+                tz()
+            } returns z
         }
     }
 

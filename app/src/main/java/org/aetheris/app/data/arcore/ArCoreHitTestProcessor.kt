@@ -14,7 +14,24 @@ import com.google.ar.core.exceptions.DeadlineExceededException
 import com.google.ar.core.exceptions.NotTrackingException
 import com.google.ar.core.exceptions.ResourceExhaustedException
 import com.google.ar.core.exceptions.SessionPausedException
+import org.aetheris.app.domain.model.AnchorPlacement
+import org.aetheris.app.domain.model.AnchorPlacementSource
 import org.aetheris.app.domain.model.Point3D
+
+/**
+ * Resultado nativo da criação de uma âncora ARCore.
+ *
+ * Mantém a referência da âncora na camada de dados e associa
+ * a origem espacial necessária para o estado de domínio.
+ */
+data class ArCoreAnchorPlacement(
+    val anchor: Anchor,
+    val source: AnchorPlacementSource
+) {
+
+    val isApproximate: Boolean
+        get() = source.isApproximate
+}
 
 /**
  * Processa hit tests realizados contra superfícies
@@ -40,7 +57,8 @@ class ArCoreHitTestProcessor(
     }
 
     /**
-     * Verifica se existe geometria real reconhecida pelo ARCore.
+     * Verifica se existe geometria convencional reconhecida
+     * pelo ARCore na coordenada indicada.
      *
      * Esta sondagem pode ser executada periodicamente e, por isso,
      * não utiliza Instant Placement nem produz logs diagnósticos.
@@ -60,15 +78,34 @@ class ArCoreHitTestProcessor(
     }
 
     /**
-     * Executa um hit test explícito e retorna sua posição
-     * no espaço mundial.
+     * Executa um hit test explícito e retorna somente sua posição.
+     *
+     * Mantido para compatibilidade com os consumidores existentes.
+     * Novos consumidores que precisam conhecer a proveniência devem
+     * utilizar [performHitTestWithSource].
      */
     fun performHitTest(
         frame: Frame,
         xPx: Float,
         yPx: Float
     ): Point3D? {
-        val hit =
+        return performHitTestWithSource(
+            frame = frame,
+            xPx = xPx,
+            yPx = yPx
+        )?.position
+    }
+
+    /**
+     * Executa um hit test explícito e retorna a posição juntamente
+     * com a origem espacial selecionada.
+     */
+    fun performHitTestWithSource(
+        frame: Frame,
+        xPx: Float,
+        yPx: Float
+    ): AnchorPlacement? {
+        val selection =
             findValidHit(
                 frame = frame,
                 xPx = xPx,
@@ -79,16 +116,21 @@ class ArCoreHitTestProcessor(
             ) ?: return null
 
         return try {
-            val point = hit.hitPose.toPoint3D()
+            val point =
+                selection.hit.hitPose.toPoint3D()
 
             diagnostic(
                 operation = OPERATION_PERFORM_HIT_TEST,
                 message =
                     "pose resolved: x=${point.x}, " +
-                            "y=${point.y}, z=${point.z}"
+                            "y=${point.y}, z=${point.z}, " +
+                            "source=${selection.source}"
             )
 
-            point
+            AnchorPlacement(
+                position = point,
+                source = selection.source
+            )
         } catch (exception: RuntimeException) {
             diagnosticWarning(
                 operation = OPERATION_PERFORM_HIT_TEST,
@@ -102,15 +144,34 @@ class ArCoreHitTestProcessor(
     }
 
     /**
-     * Cria uma âncora nativa no primeiro ponto espacial
-     * válido encontrado.
+     * Cria uma âncora nativa e retorna somente sua referência.
+     *
+     * Mantido para compatibilidade com os consumidores existentes.
+     * Novos consumidores que precisam conhecer a proveniência devem
+     * utilizar [createAnchorAtWithSource].
      */
     fun createAnchorAt(
         frame: Frame,
         xPx: Float,
         yPx: Float
     ): Anchor? {
-        val hit =
+        return createAnchorAtWithSource(
+            frame = frame,
+            xPx = xPx,
+            yPx = yPx
+        )?.anchor
+    }
+
+    /**
+     * Cria uma âncora nativa e retorna também a origem
+     * espacial do hit utilizado.
+     */
+    fun createAnchorAtWithSource(
+        frame: Frame,
+        xPx: Float,
+        yPx: Float
+    ): ArCoreAnchorPlacement? {
+        val selection =
             findValidHit(
                 frame = frame,
                 xPx = xPx,
@@ -120,7 +181,7 @@ class ArCoreHitTestProcessor(
                     OPERATION_CREATE_ANCHOR
             )
 
-        if (hit == null) {
+        if (selection == null) {
             diagnosticWarning(
                 operation = OPERATION_CREATE_ANCHOR,
                 message = "anchor not created: no valid hit"
@@ -130,16 +191,20 @@ class ArCoreHitTestProcessor(
         }
 
         return try {
-            val anchor = hit.createAnchor()
+            val anchor =
+                selection.hit.createAnchor()
 
             diagnostic(
                 operation = OPERATION_CREATE_ANCHOR,
                 message =
                     "anchor created successfully from " +
-                            describeHit(hit)
+                            describeSelection(selection)
             )
 
-            anchor
+            ArCoreAnchorPlacement(
+                anchor = anchor,
+                source = selection.source
+            )
         } catch (exception: NotTrackingException) {
             logAnchorFailure(exception)
             null
@@ -168,7 +233,7 @@ class ArCoreHitTestProcessor(
         yPx: Float,
         allowInstantPlacement: Boolean,
         diagnosticOperation: String?
-    ): HitResult? {
+    ): SelectedHit? {
         if (!areValidScreenCoordinates(xPx, yPx)) {
             diagnosticOperation?.let { operation ->
                 diagnosticWarning(
@@ -219,10 +284,17 @@ class ArCoreHitTestProcessor(
                     yPx = yPx
                 )
 
-            val conventionalHit =
-                conventionalResults.firstOrNull { hit ->
-                    isValidConventionalHit(hit)
-                }
+            val conventionalSelection =
+                conventionalResults
+                    .firstNotNullOfOrNull { hit ->
+                        resolveConventionalSource(hit)
+                            ?.let { source ->
+                                SelectedHit(
+                                    hit = hit,
+                                    source = source
+                                )
+                            }
+                    }
 
             diagnosticOperation?.let { operation ->
                 diagnostic(
@@ -231,23 +303,25 @@ class ArCoreHitTestProcessor(
                         "conventional results=" +
                                 conventionalResults.size +
                                 ", valid=" +
-                                (conventionalHit != null) +
+                                (conventionalSelection != null) +
                                 ", hits=" +
                                 describeHits(conventionalResults)
                 )
             }
 
-            if (conventionalHit != null) {
+            if (conventionalSelection != null) {
                 diagnosticOperation?.let { operation ->
                     diagnostic(
                         operation = operation,
                         message =
                             "selected conventional hit: " +
-                                    describeHit(conventionalHit)
+                                    describeSelection(
+                                        conventionalSelection
+                                    )
                     )
                 }
 
-                return conventionalHit
+                return conventionalSelection
             }
 
             if (!allowInstantPlacement) {
@@ -261,10 +335,19 @@ class ArCoreHitTestProcessor(
                     yPx = yPx
                 )
 
-            val instantHit =
-                instantResults.firstOrNull { hit ->
-                    isValidInstantPlacementHit(hit)
-                }
+            val instantSelection =
+                instantResults
+                    .firstOrNull { hit ->
+                        isValidInstantPlacementHit(hit)
+                    }
+                    ?.let { hit ->
+                        SelectedHit(
+                            hit = hit,
+                            source =
+                                AnchorPlacementSource
+                                    .INSTANT_PLACEMENT
+                        )
+                    }
 
             diagnosticOperation?.let { operation ->
                 diagnostic(
@@ -273,7 +356,7 @@ class ArCoreHitTestProcessor(
                         "instant results=" +
                                 instantResults.size +
                                 ", valid=" +
-                                (instantHit != null) +
+                                (instantSelection != null) +
                                 ", approximateDistance=" +
                                 approximateDistanceMeters +
                                 ", hits=" +
@@ -281,13 +364,15 @@ class ArCoreHitTestProcessor(
                 )
             }
 
-            if (instantHit != null) {
+            if (instantSelection != null) {
                 diagnosticOperation?.let { operation ->
                     diagnostic(
                         operation = operation,
                         message =
                             "selected instant hit: " +
-                                    describeHit(instantHit)
+                                    describeSelection(
+                                        instantSelection
+                                    )
                     )
                 }
             } else {
@@ -301,7 +386,7 @@ class ArCoreHitTestProcessor(
                 }
             }
 
-            instantHit
+            instantSelection
         } catch (exception: RuntimeException) {
             diagnosticOperation?.let { operation ->
                 diagnosticWarning(
@@ -339,41 +424,60 @@ class ArCoreHitTestProcessor(
         )
     }
 
-    private fun isValidConventionalHit(
+    /**
+     * Valida um hit convencional e identifica sua origem.
+     */
+    private fun resolveConventionalSource(
         hit: HitResult
-    ): Boolean {
-        val trackable = hit.trackable
+    ): AnchorPlacementSource? {
+        val trackable =
+            hit.trackable
 
         if (
             trackable.trackingState !=
             TrackingState.TRACKING
         ) {
-            return false
+            return null
         }
 
         return when (trackable) {
             is Plane -> {
-                trackable.isPoseInPolygon(
-                    hit.hitPose
-                )
+                if (
+                    trackable.isPoseInPolygon(
+                        hit.hitPose
+                    )
+                ) {
+                    AnchorPlacementSource.PLANE
+                } else {
+                    null
+                }
             }
 
             is Point -> {
-                trackable.orientationMode ==
-                        Point.OrientationMode
-                            .ESTIMATED_SURFACE_NORMAL
+                if (
+                    trackable.orientationMode ==
+                    Point.OrientationMode
+                        .ESTIMATED_SURFACE_NORMAL
+                ) {
+                    AnchorPlacementSource.FEATURE_POINT
+                } else {
+                    null
+                }
             }
 
-            is DepthPoint -> true
+            is DepthPoint -> {
+                AnchorPlacementSource.DEPTH_POINT
+            }
 
-            else -> false
+            else -> null
         }
     }
 
     private fun isValidInstantPlacementHit(
         hit: HitResult
     ): Boolean {
-        val trackable = hit.trackable
+        val trackable =
+            hit.trackable
 
         return trackable is InstantPlacementPoint &&
                 trackable.trackingState ==
@@ -396,11 +500,20 @@ class ArCoreHitTestProcessor(
         }
     }
 
+    private fun describeSelection(
+        selection: SelectedHit
+    ): String {
+        return describeHit(selection.hit) +
+                ", source=${selection.source}"
+    }
+
     private fun describeHit(
         hit: HitResult
     ): String {
         return try {
-            val trackable = hit.trackable
+            val trackable =
+                hit.trackable
+
             val baseDescription =
                 "type=${trackable.javaClass.simpleName}, " +
                         "tracking=${trackable.trackingState}"
@@ -496,6 +609,11 @@ class ArCoreHitTestProcessor(
             z = tz()
         )
     }
+
+    private data class SelectedHit(
+        val hit: HitResult,
+        val source: AnchorPlacementSource
+    )
 
     private companion object {
         const val DEFAULT_APPROXIMATE_DISTANCE_METERS =
