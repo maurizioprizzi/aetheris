@@ -29,7 +29,7 @@ They are being migrated gradually into standalone ADR documents. Until each migr
 | ADR-013 | Native ARCore anchor tracking and pose correction | Implemented | Pending |
 | ADR-014 | Defensive ARCore/OpenGL resource management and Depth fallback | Implemented | Pending |
 | ADR-015 | Sequential axis capture and uncertainty-aware AABB volume | Implemented | Pending |
-| ADR-016 | Frame-affine placement queue and Instant Placement fallback | Implemented | Pending |
+| [ADR-016](ADR-016-frame-affine-placement.md) | Frame-affine placement queue and Instant Placement fallback | Implemented | Available |
 
 ## ADR lifecycle
 
@@ -43,7 +43,25 @@ Each standalone ADR uses one of the following statuses:
 
 ## Naming convention
 
-Standalone records follow this filename format:
+Standalone records follow this filename format: `ADR-NNN-short-decision-title.md`.
 
-```text
-ADR-NNN-short-decision-title.md
+For example: `ADR-016-frame-affine-placement.md`.
+
+## Documentation principles
+
+Aetheris ADRs should:
+
+1. Describe the engineering problem without depending on hidden project history.
+2. State the selected decision explicitly.
+3. Explain the relevant technical and scientific constraints.
+4. Record important alternatives that were rejected.
+5. Describe positive and negative consequences.
+6. Distinguish implemented behavior from planned work.
+7. Avoid presenting experimental measurements as certified metrology.
+
+## Historical record
+
+The chronological development history, hardware experiments, test results, and early architecture notes remain available in the repository root:
+
+- [`DEVLOG.md`](../../DEVLOG.md)
+- [`README.md`](../../README.md)
