@@ -1,79 +1,187 @@
 package org.aetheris.app.domain.math
 
+import com.google.common.truth.Truth.assertThat
 import org.aetheris.app.domain.model.Point3D
-import kotlin.math.hypot
+import org.junit.Test
 
-object SpatialLineMath {
+class SpatialLineMathTest {
 
-    fun toVertexArray(
-        start: Point3D,
-        end: Point3D
-    ): FloatArray {
-        return floatArrayOf(
-            start.x,
-            start.y,
-            start.z,
-            end.x,
-            end.y,
-            end.z
+    @Test
+    fun `toVertexArray returns start and end coordinates in OpenGL order`() {
+        val start = Point3D(
+            x = 1f,
+            y = 2f,
+            z = 3f
+        )
+
+        val end = Point3D(
+            x = 4f,
+            y = 5f,
+            z = 6f
+        )
+
+        val result = SpatialLineMath.toVertexArray(
+            start = start,
+            end = end
+        )
+
+        assertThat(result.asList())
+            .containsExactly(
+                1f,
+                2f,
+                3f,
+                4f,
+                5f,
+                6f
+            )
+            .inOrder()
+    }
+
+    @Test
+    fun `midpoint returns center between two points`() {
+        val start = Point3D(
+            x = -2f,
+            y = 1f,
+            z = 4f
+        )
+
+        val end = Point3D(
+            x = 6f,
+            y = 5f,
+            z = -2f
+        )
+
+        val result = SpatialLineMath.midpoint(
+            start = start,
+            end = end
+        )
+
+        assertThat(result).isEqualTo(
+            Point3D(
+                x = 2f,
+                y = 3f,
+                z = 1f
+            )
         )
     }
 
-    fun midpoint(
-        start: Point3D,
-        end: Point3D
-    ): Point3D {
-        return Point3D(
-            x = average(start.x, end.x),
-            y = average(start.y, end.y),
-            z = average(start.z, end.z)
-        )
-    }
-
-    fun magnitude(
-        start: Point3D,
-        end: Point3D
-    ): Float {
-        return start.distanceTo(end)
-    }
-
-    fun normalizedDirection(
-        start: Point3D,
-        end: Point3D
-    ): Point3D? {
-        val dx = end.x.toDouble() - start.x.toDouble()
-        val dy = end.y.toDouble() - start.y.toDouble()
-        val dz = end.z.toDouble() - start.z.toDouble()
-
-        val magnitude = hypot(
-            hypot(dx, dy),
-            dz
+    @Test
+    fun `midpoint avoids float overflow for large coordinates`() {
+        val start = Point3D(
+            x = Float.MAX_VALUE,
+            y = Float.MAX_VALUE,
+            z = Float.MAX_VALUE
         )
 
-        if (
-            !magnitude.isFinite() ||
-            magnitude <= MINIMUM_MAGNITUDE
-        ) {
-            return null
-        }
-
-        return Point3D(
-            x = (dx / magnitude).toFloat(),
-            y = (dy / magnitude).toFloat(),
-            z = (dz / magnitude).toFloat()
+        val end = Point3D(
+            x = Float.MAX_VALUE,
+            y = Float.MAX_VALUE,
+            z = Float.MAX_VALUE
         )
+
+        val result = SpatialLineMath.midpoint(
+            start = start,
+            end = end
+        )
+
+        assertThat(result.x).isEqualTo(Float.MAX_VALUE)
+        assertThat(result.y).isEqualTo(Float.MAX_VALUE)
+        assertThat(result.z).isEqualTo(Float.MAX_VALUE)
     }
 
-    private fun average(
-        first: Float,
-        second: Float
-    ): Float {
-        return (
-                (first.toDouble() + second.toDouble()) *
-                        MIDPOINT_FACTOR
-                ).toFloat()
+    @Test
+    fun `magnitude returns euclidean distance between points`() {
+        val start = Point3D(
+            x = 0f,
+            y = 0f,
+            z = 0f
+        )
+
+        val end = Point3D(
+            x = 3f,
+            y = 4f,
+            z = 12f
+        )
+
+        val result = SpatialLineMath.magnitude(
+            start = start,
+            end = end
+        )
+
+        assertThat(result)
+            .isWithin(1e-5f)
+            .of(13f)
     }
 
-    private const val MINIMUM_MAGNITUDE = 1e-6
-    private const val MIDPOINT_FACTOR = 0.5
+    @Test
+    fun `normalizedDirection returns unit vector toward end point`() {
+        val start = Point3D(
+            x = 1f,
+            y = 2f,
+            z = 3f
+        )
+
+        val end = Point3D(
+            x = 4f,
+            y = 6f,
+            z = 3f
+        )
+
+        val result = requireNotNull(
+            SpatialLineMath.normalizedDirection(
+                start = start,
+                end = end
+            )
+        )
+
+        assertThat(result.x)
+            .isWithin(1e-5f)
+            .of(0.6f)
+
+        assertThat(result.y)
+            .isWithin(1e-5f)
+            .of(0.8f)
+
+        assertThat(result.z)
+            .isWithin(1e-5f)
+            .of(0f)
+
+        assertThat(result.magnitude)
+            .isWithin(1e-5f)
+            .of(1f)
+    }
+
+    @Test
+    fun `normalizedDirection returns null for identical points`() {
+        val point = Point3D(
+            x = 1f,
+            y = 2f,
+            z = 3f
+        )
+
+        val result = SpatialLineMath.normalizedDirection(
+            start = point,
+            end = point
+        )
+
+        assertThat(result).isNull()
+    }
+
+    @Test
+    fun `normalizedDirection returns null for negligible segment`() {
+        val start = Point3D.ORIGIN
+
+        val end = Point3D(
+            x = 0.0000001f,
+            y = 0f,
+            z = 0f
+        )
+
+        val result = SpatialLineMath.normalizedDirection(
+            start = start,
+            end = end
+        )
+
+        assertThat(result).isNull()
+    }
 }
