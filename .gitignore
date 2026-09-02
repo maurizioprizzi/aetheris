@@ -1,39 +1,44 @@
-# Build e Cache do Gradle
-*.iml
+# Gradle e Kotlin
 .gradle/
+.kotlin/
 build/
 **/build/
+*.iml
 
 # Android Studio e IntelliJ IDEA
 .idea/
-!.idea/codeStyles/
-!.idea/vcs.xml
-!.idea/runConfigurations/
 
-# Configurações locais de máquina e SDK
+# Configurações locais da máquina e do Android SDK
 local.properties
 .DS_Store
 Thumbs.db
 
-# Binários e Pacotes Compilados
+# Variáveis de ambiente e configurações privadas
+.env
+.env.*
+keystore.properties
+
+# Binários e pacotes compilados
 *.apk
 *.ap_
 *.aab
 *.dex
 *.class
 
-# Chaves de Assinatura (Segurança Crítica)
+# Chaves de assinatura
 *.jks
 *.keystore
 
-# Ferramentas Nativas e Profiler C/C++
+# Ferramentas nativas e profiler
 .cxx/
 .externalNativeBuild/
-/captures/
-/profiler/
+captures/
+profiler/
 *.hprof
 
-# Relatórios de Testes e Lint
+# Logs de execução
+*.log
+
+# Relatórios de testes e lint
 lint/
-**/lint-results-*.html
-**/lint-results-*.xml
+**/lint-results-*
