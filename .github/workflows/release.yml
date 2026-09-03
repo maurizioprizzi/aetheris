@@ -1,0 +1,100 @@
+name: Android Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: android-release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: Build and publish APK
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Check out tagged source
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: "17"
+          distribution: temurin
+          cache: gradle
+
+      - name: Grant execute permission for Gradle wrapper
+        run: chmod +x gradlew
+
+      - name: Validate and build Debug APK
+        run: >-
+          ./gradlew clean testDebugUnitTest lintDebug assembleDebug
+          --no-configuration-cache
+
+      - name: Prepare release files
+        id: package
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          release_tag="${GITHUB_REF_NAME}"
+          apk_name="aetheris-${release_tag}-debug.apk"
+          checksum_name="${apk_name}.sha256"
+
+          mkdir -p release
+
+          cp \
+            app/build/outputs/apk/debug/app-debug.apk \
+            "release/${apk_name}"
+
+          (
+            cd release
+            sha256sum "${apk_name}" > "${checksum_name}"
+          )
+
+          echo "apk_path=release/${apk_name}" \
+            >> "${GITHUB_OUTPUT}"
+
+          echo "checksum_path=release/${checksum_name}" \
+            >> "${GITHUB_OUTPUT}"
+
+      - name: Upload workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: aetheris-${{ github.ref_name }}
+          path: |
+            ${{ steps.package.outputs.apk_path }}
+            ${{ steps.package.outputs.checksum_path }}
+          if-no-files-found: error
+
+      - name: Publish GitHub Release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.ref_name }}
+          APK_PATH: ${{ steps.package.outputs.apk_path }}
+          CHECKSUM_PATH: ${{ steps.package.outputs.checksum_path }}
+        run: |
+          set -euo pipefail
+
+          release_flags=()
+
+          if [[ "${RELEASE_TAG}" == *"-alpha"* || \
+                "${RELEASE_TAG}" == *"-beta"* || \
+                "${RELEASE_TAG}" == *"-rc"* ]]; then
+            release_flags+=(--prerelease)
+          fi
+
+          gh release create "${RELEASE_TAG}" \
+            "${APK_PATH}" \
+            "${CHECKSUM_PATH}" \
+            --verify-tag \
+            --title "Aetheris ${RELEASE_TAG}" \
+            --generate-notes \
+            "${release_flags[@]}"
