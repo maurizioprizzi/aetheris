@@ -1,12 +1,135 @@
-# Aetheris — Diário de Desenvolvimento (DEVLOG)
+# 📐 Aetheris - Diário de Desenvolvimento (DEVLOG)
 
 Registro contínuo da engenharia, decisões arquiteturais (ADRs), modelagem matemática e evolução do ecossistema Aetheris.
 
 ---
 
-## [Dia 13] — 2026-09-02: Procedência Espacial das Âncoras, Integridade Estrutural e Primeira Release Pública
+## 🚀 [Dia 14] - 2026-09-03: HUD de Procedência, Painel Adaptativo e Automação de Releases
 
-### Objetivos concluídos
+### 🎯 Objetivos Concluídos
+
+- [x] Criação do workflow `.github/workflows/release.yml` para automatizar releases baseadas em tags Git no formato `v*`.
+- [x] Configuração do GitHub Actions para executar testes unitários, Android Lint e montagem limpa do APK de Debug antes de publicar uma release.
+- [x] Geração automática de APK versionado e arquivo de checksum SHA-256.
+- [x] Publicação automática dos dois artefatos em uma GitHub Release.
+- [x] Classificação automática de tags `alpha`, `beta` e `rc` como pré-releases.
+- [x] Apresentação da procedência espacial das âncoras diretamente no HUD de medição.
+- [x] Diferenciação visual entre superfícies convencionais e o fallback por Instant Placement.
+- [x] Inclusão de identificação individual das fontes dos pontos A e B.
+- [x] Inclusão de aviso explícito quando a medição atual utiliza posicionamento aproximado.
+- [x] Preservação da possibilidade de confirmar pontos aproximados, sem apresentá-los como equivalentes a uma superfície convencional.
+- [x] Atualização cromática da mira para representar rastreamento indisponível, superfície convencional e fallback aproximado.
+- [x] Correção do painel de controles para impedir que seu estado expandido cubra a mira central.
+- [x] Limitação adaptativa do painel a 30% da altura disponível, mantendo o conteúdo excedente acessível por rolagem.
+- [x] Compilação, instalação e validação funcional em aparelho físico.
+- [x] Execução integral dos testes unitários, Android Lint e montagem do APK de Debug.
+
+### 📦 Automação de Releases
+
+O novo workflow é executado quando uma tag compatível é enviada ao repositório:
+
+```text
+tag v* -> validação -> APK versionado -> SHA-256 -> GitHub Release
+```
+
+Antes da publicação, o runner executa:
+
+```bash
+./gradlew clean testDebugUnitTest lintDebug assembleDebug \
+  --no-configuration-cache
+```
+
+O APK e seu checksum também permanecem disponíveis como artefatos do workflow. A permissão `contents: write` é limitada ao workflow de release e utiliza o token temporário fornecido pelo próprio GitHub Actions.
+
+O workflow foi adicionado e validado estruturalmente no repositório. Sua execução completa de ponta a ponta permanece pendente até o envio da próxima tag de versão; a tag anterior `v0.1.0-alpha` foi criada antes da inclusão dessa automação.
+
+### 🎯 Procedência Apresentada no HUD
+
+O HUD agora transforma a procedência armazenada no estado em informação compreensível durante a medição:
+
+| Estado ou fonte | Apresentação | Significado |
+|---|---|---|
+| Rastreamento indisponível | Mira vermelha | Não é possível criar uma nova âncora. |
+| Superfície convencional | Mira e indicador verdes | Existe geometria convencional reconhecida sob a mira. |
+| Fallback aproximado | Mira e indicador amarelos | O próximo ponto pode depender de Instant Placement. |
+| `PLANE` | `PLANO` | Ponto apoiado no polígono de um plano rastreado. |
+| `FEATURE_POINT` | `PONTO VISUAL` | Ponto visual com normal de superfície estimada. |
+| `DEPTH_POINT` | `PROFUNDIDADE` | Ponto proveniente de informação de profundidade. |
+| `INSTANT_PLACEMENT` | `INSTANTÂNEO` | Posição inicial aproximada e sujeita a refinamento. |
+
+Quando qualquer ponto ativo utiliza `INSTANT_PLACEMENT`, a interface apresenta o aviso `MEDIÇÃO APROXIMADA`. Esse aviso comunica que o resultado não possui a mesma qualidade espacial de um posicionamento convencional e pode mudar conforme o ARCore refina o mapa do ambiente.
+
+### 📐 Painel de Controles Adaptativo
+
+A inclusão de novos indicadores aumentou a altura do painel e, durante o primeiro teste físico, seu estado expandido cobriu a mira central. Isso prejudicava a relação entre a coordenada visual selecionada e o raio utilizado pelo hit test.
+
+A correção utiliza `BoxWithConstraints` para derivar a altura máxima do painel a partir da viewport. O cartão inteiro é limitado a 30% da altura disponível, enquanto sua coluna interna permanece rolável.
+
+Consequências:
+- A mira permanece visível com o painel completamente expandido.
+- Uma região da imagem da câmera permanece livre ao redor da mira.
+- Todos os controles continuam acessíveis por rolagem.
+- Telas com alturas diferentes recebem uma restrição proporcional.
+- O ponto visual da mira continua coerente com o centro usado pelo pipeline espacial.
+
+### 📱 Validação em Hardware
+
+O APK foi compilado e instalado em um dispositivo físico com:
+
+```bash
+./gradlew compileDebugKotlin installDebug \
+  --no-configuration-cache
+```
+
+Durante o teste foram confirmados:
+- Funcionamento dos botões de posicionamento e confirmação.
+- Rolagem do painel de controles.
+- Exibição das fontes das âncoras.
+- Aviso de medição aproximada.
+- Criação de âncoras por `INSTANT_PLACEMENT`.
+- Transição para `FEATURE_POINT` quando geometria convencional se tornou válida.
+- Permanência da mira central após a correção do painel adaptativo.
+
+O Logcat confirmou a prioridade implementada: resultados convencionais válidos foram selecionados antes do Instant Placement, enquanto o fallback foi utilizado somente quando a geometria convencional estava ausente ou inválida.
+
+### 🛠️ Diagnóstico do Pipeline Nativo
+
+O Logcat registrou explicitamente:
+
+```text
+depth_mode: AR_DEPTH_MODE_DISABLED
+```
+
+Apesar disso, o runtime do ARCore continuou emitindo mensagens internas relacionadas a `ComputeDisparity` e inicializou componentes auxiliares do `ArDepthCalculator`. Nesta execução, essas mensagens não produziram crash nem ANR e não impediram a criação das âncoras.
+
+Essa observação indica que o SDK pode utilizar processamento interno de profundidade para rastreamento ou Instant Placement mesmo quando a Depth API pública está desabilitada. O comportamento permanece registrado como limitação específica do runtime/dispositivo e não deve ser interpretado como Depth Mode ativo no estado do aplicativo.
+
+As mensagens do Motorola Game Mode tentando localizar o pacote na Play Store foram classificadas como externas ao Aetheris. As mensagens de EGL e MediaPipe observadas depois de `Session::PauseWithAnalytics returning OK` ocorreram durante o encerramento da sessão e não representaram falha funcional durante o teste.
+
+### 📊 Estratégia de Qualidade
+
+Validação final executada:
+
+```bash
+./gradlew testDebugUnitTest lintDebug assembleDebug \
+  --no-configuration-cache
+```
+
+Resultado:
+
+```text
+BUILD SUCCESSFUL
+```
+
+O trabalho foi concluído nos seguintes commits principais:
+- `d657d05` - `ci: automate tagged APK releases`
+- `6fda6fc` - `feat: expose placement provenance in measurement HUD`
+
+---
+
+## 🏷️ [Dia 13] - 2026-09-02: Procedência Espacial das Âncoras, Integridade Estrutural e Primeira Release Pública
+
+### 🎯 Objetivos Concluídos
 
 - [x] Correção do diretório do workflow de integração contínua de `.github/worklows` para `.github/workflows`, permitindo que o GitHub reconheça corretamente o pipeline Android.
 - [x] Restauração de `SpatialLineMath` no source set de produção (`src/main`), eliminando a implementação que havia permanecido incorretamente dentro de `src/test`.
@@ -28,7 +151,7 @@ Registro contínuo da engenharia, decisões arquiteturais (ADRs), modelagem mate
 - [x] Ampliação das suítes de testes de domínio, ARCore, repositório, estado visual e ViewModel.
 - [x] Validação integral com testes unitários, Android Lint e montagem do APK de Debug.
 
-### Modelo de procedência espacial
+### 📐 Modelo de Procedência Espacial
 
 Cada ponto de medição agora pode transportar não apenas sua posição no mundo, mas também a evidência espacial que originou sua âncora:
 
@@ -41,7 +164,7 @@ Cada ponto de medição agora pode transportar não apenas sua posição no mund
 
 Essa classificação evita tratar todos os posicionamentos como equivalentes. O aplicativo passa a possuir informação suficiente para comunicar ao usuário quando uma dimensão contém um ponto aproximado, sem acoplar o domínio às classes nativas do ARCore.
 
-### Fluxo implementado
+### 🔄 Fluxo Implementado
 
 1. `ArCoreHitTestProcessor` seleciona o melhor resultado disponível, priorizando geometria convencional.
 2. O tipo nativo do objeto rastreado é convertido em `AnchorPlacementSource`.
@@ -51,7 +174,7 @@ Essa classificação evita tratar todos os posicionamentos como equivalentes. O 
 6. `MeasurementUiState` deriva se a medição atual é convencional ou contém Instant Placement.
 7. Operações de confirmação, descarte e reset removem conjuntamente pontos e procedências.
 
-### Compatibilidade e invariantes
+### 🛡️ Compatibilidade e Invariantes
 
 - As APIs anteriores que retornam apenas `Point3D` ou `Anchor` foram preservadas para evitar uma migração abrupta dos consumidores.
 - Um ponto ainda pode existir temporariamente sem procedência, mantendo compatibilidade com estados e testes anteriores.
@@ -61,19 +184,18 @@ Essa classificação evita tratar todos os posicionamentos como equivalentes. O 
 - O estado `STOPPED`, a substituição, o rollback e a limpeza removem posição e origem de forma consistente.
 - A distância somente é recalculada quando as posições mudam; uma atualização isolada da procedência não provoca cálculo métrico desnecessário.
 
-### Estratégia de qualidade
+### 📊 Estratégia de Qualidade
 
 Os novos testes verificam:
-
-- propriedades e classificação de `AnchorPlacementSource`;
-- associação imutável entre posição e fonte em `AnchorPlacement`;
-- invariantes de `SpatialFrameData` e `MeasurementUiState`;
-- classificação de planos, feature points, depth points e Instant Placement;
-- prioridade dos resultados convencionais sobre o fallback aproximado;
-- preservação da fonte durante atualizações e pausas das âncoras;
-- remoção da procedência durante substituição, encerramento, descarte e reset;
-- propagação ponta a ponta entre repositório, ViewModel e estado visual;
-- regressão dos fluxos existentes de distância, dimensões, volume, material e massa.
+- Propriedades e classificação de `AnchorPlacementSource`.
+- Associação imutável entre posição e fonte em `AnchorPlacement`.
+- Invariantes de `SpatialFrameData` e `MeasurementUiState`.
+- Classificação de planos, feature points, depth points e Instant Placement.
+- Prioridade dos resultados convencionais sobre o fallback aproximado.
+- Preservação da fonte durante atualizações e pausas das âncoras.
+- Remoção da procedência durante substituição, encerramento, descarte e reset.
+- Propagação ponta a ponta entre repositório, ViewModel e estado visual.
+- Regressão dos fluxos existentes de distância, dimensões, volume, material e massa.
 
 Pipeline final executado:
 
@@ -89,18 +211,17 @@ BUILD SUCCESSFUL in 15s
 53 actionable tasks: 12 executed, 41 up-to-date
 ```
 
-### Resultado arquitetural
+### 🏛️ Resultado Arquitetural
 
 Aetheris agora diferencia a existência de uma coordenada espacial da qualidade do método que a produziu. Essa separação prepara o aplicativo para:
+- Exibir avisos de posicionamento aproximado no HUD.
+- Impedir que resultados provisórios sejam apresentados como medições convencionais.
+- Registrar procedência em futuras exportações JSON e CSV.
+- Comparar estabilidade e precisão por tipo de hit test.
+- Recalcular indicadores quando um Instant Placement for refinado.
+- Estabelecer políticas futuras de aceitação e confiança por fonte espacial.
 
-- exibir avisos de posicionamento aproximado no HUD;
-- impedir que resultados provisórios sejam apresentados como medições convencionais;
-- registrar procedência em futuras exportações JSON e CSV;
-- comparar estabilidade e precisão por tipo de hit test;
-- recalcular indicadores quando um Instant Placement for refinado;
-- estabelecer políticas futuras de aceitação e confiança por fonte espacial.
-
-### Controle de versão relacionado
+### 📦 Controle de Versão Relacionado
 
 - `481fd9f` — restauração de `SpatialLineMath` nas fontes de produção.
 - `9ffdc67` — exclusão de artefatos locais do controle de versão.
@@ -113,26 +234,26 @@ Aetheris agora diferencia a existência de uma coordenada espacial da qualidade 
 
 ---
 
-## ? [Dia 12] - 2026-09-01: Estimativa de Massa por Densidade, Threading OpenGL e Valida��o Ponta a Ponta em Hardware
+## 🚀 [Dia 12] - 2026-09-01: Estimativa de Massa por Densidade, Threading OpenGL e Validação Ponta a Ponta em Hardware
 
-### ? Objetivos Conclu�dos
+### 🎯 Objetivos Concluídos
 
-- [x] Cria��o do cat�logo de materiais e densidades f�sicas (`MaterialDensity`) abrangendo s�lidos comuns (madeira, alum�nio, a�o, vidro, concreto, pl�sticos).
+- [x] Criação do catálogo de materiais e densidades físicas (`MaterialDensity`) abrangendo sólidos comuns (madeira, alumínio, aço, vidro, concreto, plásticos).
 - [x] Modelagem da entidade `MassEstimate` contendo massa calculada em quilogramas e gramas, margem de incerteza propagada ($\pm\sigma$) e incerteza relativa percentual.
-- [x] Implementa��o do caso de uso `EstimateMassUseCase` integrando volume tridimensional e densidade volum�trica com propaga��o rigorosa de incerteza combinada.
-- [x] Diagn�stico e resolu��o de conten��o de concorr�ncia e race condition entre a Main Thread/Coroutines e a `GLThread` (render thread) do ARCore.
-- [x] Implementa��o de fila de opera��es orientada ao frame (`Frame-Affine Placement Queue`) em `SpatialSensorRepositoryImpl`, executando raycasting e cria��o de �ncoras sincronizadas com o frame de renderiza��o mais recente.
-- [x] Habilita��o de `Instant Placement` (`Config.InstantPlacementMode.LOCAL_Y_UP`) como fallback determin�stico para posicionamento imediato de pontos em superf�cies com baixa densidade de planos.
-- [x] Implementa��o de throttling na sondagem de superf�cies (`hasValidSurfaceAt`) fixado em 5 Hz (200 ms), reduzindo substancialmente o overhead de CPU e consumo de bateria.
-- [x] Inclus�o de telemetria diagn�stica isolada para builds de Debug sem impactar a performance em Release.
-- [x] Atualiza��o completa da su�te de testes unit�rios (`SpatialSensorRepositoryTest`, `MeasurementViewModelTest`, etc.) totalizando **128/128 testes unit�rios aprovados na JVM**.
-- [x] Valida��o funcional ponta a ponta em hardware real (Motorola Edge 50 Fusion): toque na tela $\to$ ancoragem espacial $\to$ medi��o linear $\to$ c�lculo volum�trico $\to$ estimativa de massa.
-- [x] Registro formal da decis�o arquitetural no `ADR-016`.
-- [x] Publica��o das altera��es nos commits `a92b40b`, `a72eed1` e `b18502c`.
+- [x] Implementação do caso de uso `EstimateMassUseCase` integrando volume tridimensional e densidade volumétrica com propagação rigorosa de incerteza combinada.
+- [x] Diagnóstico e resolução de contenção de concorrência e race condition entre a Main Thread/Coroutines e a `GLThread` (render thread) do ARCore.
+- [x] Implementação de fila de operações orientada ao frame (`Frame-Affine Placement Queue`) em `SpatialSensorRepositoryImpl`, executando raycasting e criação de âncoras sincronizadas com o frame de renderização mais recente.
+- [x] Habilitação de `Instant Placement` (`Config.InstantPlacementMode.LOCAL_Y_UP`) como fallback determinístico para posicionamento imediato de pontos em superfícies com baixa densidade de planos.
+- [x] Implementação de throttling na sondagem de superfícies (`hasValidSurfaceAt`) fixado em 5 Hz (200 ms), reduzindo substancialmente o overhead de CPU e consumo de bateria.
+- [x] Inclusão de telemetria diagnóstica isolada para builds de Debug sem impactar a performance em Release.
+- [x] Atualização completa da suíte de testes unitários (`SpatialSensorRepositoryTest`, `MeasurementViewModelTest`, etc.) totalizando **128/128 testes unitários aprovados na JVM**.
+- [x] Validação funcional ponta a ponta em hardware real (Motorola Edge 50 Fusion): toque na tela $\to$ ancoragem espacial $\to$ medição linear $\to$ cálculo volumétrico $\to$ estimativa de massa.
+- [x] Registro formal da decisão arquitetural no `ADR-016`.
+- [x] Publicação das alterações nos commits `a92b40b`, `a72eed1` e `b18502c`.
 
-### ? Modelagem Matem�tica
+### 📐 Modelagem Matemática
 
-A estimativa de massa � obtida a partir do produto do volume tridimensional $V$ pela densidade volum�trica do material $\rho$:
+A estimativa de massa é obtida a partir do produto do volume tridimensional $V$ pela densidade volumétrica do material $\rho$:
 
 $$M = V \times \rho$$
 
@@ -140,77 +261,77 @@ onde:
 - $V$ representa o volume estimado da caixa delimitadora (AABB) em $\text{m}^3$;
 - $\rho$ representa a densidade do material em $\text{kg/m}^3$.
 
-A propaga��o da incerteza combinada $u_M$ considera a incerteza volum�trica $u_V$ e a incerteza intr�nseca da densidade do material $u_\rho$:
+A propagação da incerteza combinada $u_M$ considera a incerteza volumétrica $u_V$ e a incerteza intrínseca da densidade do material $u_\rho$:
 
 $$u_M = \sqrt{(\rho \times u_V)^2 + (V \times u_\rho)^2}$$
 
-Essa modelagem assegura que a incerteza final reflita tanto a precis�o do sensor espacial quanto a toler�ncia na composi��o f�sica do material selecionado.
+Essa modelagem assegura que a incerteza final reflita tanto a precisão do sensor espacial quanto a tolerância na composição física do material selecionado.
 
-### ?? Desafios de Engenharia & Diagn�stico em Hardware
+### 🛠️ Desafios de Engenharia & Diagnóstico em Hardware
 
-1. **Concorr�ncia entre Coroutines e a GLThread do ARCore:**
-- *Causa:* Chamadas ass�ncronas para `createAnchor` ou `performHitTest` executadas a partir de dispatchers de Coroutine tentavam acessar o estado nativo da `Session` enquanto a thread OpenGL estava no meio do ciclo de renderiza��o de frame, gerando exce��es nativas transit�rias e falha silenciosa na fixa��o de pontos.
-- *Solu��o:* Cria��o de uma fila de comandos at�mica (`ConcurrentLinkedQueue`) no reposit�rio, consumida de forma s�ncrona dentro de `onFrameUpdate(frame)` na `GLThread`, garantindo que todas as intera��es com o ARCore ocorram estritamente no frame ativo.
-2. **Superf�cies Pouco Texturizadas e Falha de Planos Convencionais:**
-- *Causa:* Ambientes internos homog�neos demoravam v�rios segundos para consolidar planos poligonais, bloqueando o usu�rio de fixar o Ponto A ou B.
-- *Solu��o:* Ativa��o do modo `Instant Placement` com fallback em cascata: plano delimitado $\to$ ponto ToF/Depth $\to$ ponto Instant Placement (`InstantPlacementPoint`).
-3. **Sobrecarga de Raycasting no Ret�culo (Crosshair):**
-- *Causa:* A sondagem de superf�cie para feedback crom�tico do ret�culo executava a 60 FPS, consumindo ciclos desnecess�rios de CPU.
-- *Solu��o:* Aplica��o de throttling por timestamp garantindo intervalo m�nimo de 200 ms (5 Hz) entre as verifica��es de superf�cie.
+1. **Concorrência entre Coroutines e a GLThread do ARCore:**
+- *Causa:* Chamadas assíncronas para `createAnchor` ou `performHitTest` executadas a partir de dispatchers de Coroutine tentavam acessar o estado nativo da `Session` enquanto a thread OpenGL estava no meio do ciclo de renderização de frame, gerando exceções nativas transitórias e falha silenciosa na fixação de pontos.
+- *Solução:* Criação de uma fila de comandos atômica (`ConcurrentLinkedQueue`) no repositório, consumida de forma síncrona dentro de `onFrameUpdate(frame)` na `GLThread`, garantindo que todas as interações com o ARCore ocorram estritamente no frame ativo.
+2. **Superfícies Pouco Texturizadas e Falha de Planos Convencionais:**
+- *Causa:* Ambientes internos homogêneos demoravam vários segundos para consolidar planos poligonais, bloqueando o usuário de fixar o Ponto A ou B.
+- *Solução:* Ativação do modo `Instant Placement` com fallback em cascata: plano delimitado $\to$ ponto ToF/Depth $\to$ ponto Instant Placement (`InstantPlacementPoint`).
+3. **Sobrecarga de Raycasting no Retículo (Crosshair):**
+- *Causa:* A sondagem de superfície para feedback cromático do retículo executava a 60 FPS, consumindo ciclos desnecessários de CPU.
+- *Solução:* Aplicação de throttling por timestamp garantindo intervalo mínimo de 200 ms (5 Hz) entre as verificações de superfície.
 
-### ? M�tricas de Valida��o
+### 📊 Métricas de Validação
 
-- **Su�te de Testes Unit�rios:** **128 testes executados, 0 falhas ? BUILD SUCCESSFUL**.
-- **Comando de valida��o:** `./gradlew testDebugUnitTest lintDebug assembleDebug --no-configuration-cache`.
-- **Valida��o em Hardware:** Posicionamento de �ncoras verificado com taxa de sucesso de 100% em m�ltiplos testes de ilumina��o e dist�ncia no Motorola Edge 50 Fusion.
+- **Suíte de Testes Unitários:** **128 testes executados, 0 falhas – BUILD SUCCESSFUL**.
+- **Comando de validação:** `./gradlew testDebugUnitTest lintDebug assembleDebug --no-configuration-cache`.
+- **Validação em Hardware:** Posicionamento de âncoras verificado com taxa de sucesso de 100% em múltiplos testes de iluminação e distância no Motorola Edge 50 Fusion.
 
-### ?? Decis�es de Arquitetura (ADR)
+### 🏛️ Decisões de Arquitetura (ADR)
 
 - **ADR-016: Frame-Affine Placement Queue & Instant Placement Fallback**
-  - **Contexto:** A cria��o de �ncoras e o raycasting requerem sincronia absoluta com o frame ativo na thread gr�fica, e a depend�ncia exclusiva de planos poligonais tornava a inicializa��o lenta em superf�cies lisas.
-  - **Decis�o:** Enfileirar requisi��es de ancoragem para execu��o direta no frame ativo da `GLThread` e habilitar o `Instant Placement` como fallback imediato, mantendo o dom�nio desacoplado via contratos reativos.
+  - **Contexto:** A criação de âncoras e o raycasting requerem sincronia absoluta com o frame ativo na thread gráfica, e a dependência exclusiva de planos poligonais tornava a inicialização lenta em superfícies lisas.
+  - **Decisão:** Enfileirar requisições de ancoragem para execução direta no frame ativo da `GLThread` e habilitar o `Instant Placement` como fallback imediato, mantendo o domínio desacoplado via contratos reativos.
 
 ---
 
-## ? [Dia 11] - 2026-08-31: Resolu��o Expl�cita do Koin no N�vel da Activity
+## 🚀 [Dia 11] - 2026-08-31: Resolução Explícita do Koin no Nível da Activity
 
-### ? Objetivo Conclu�do
+### 🎯 Objetivo Concluído
 
-- [x] Refatora��o isolada do arquivo `MainActivity.kt` para remover a depend�ncia de um contexto Koin adicional dentro da �rvore do Jetpack Compose.
-- [x] Resolu��o de `MeasurementViewModel` diretamente no ciclo de vida da `ComponentActivity` por meio do delegate `by viewModel()`.
-- [x] Resolu��o do singleton `ArCoreSessionManager` diretamente na Activity por meio do delegate `by inject()`.
-- [x] Passagem expl�cita das depend�ncias para `MeasurementScreen`.
-- [x] Remo��o do wrapper `KoinAndroidContext` da composi��o principal.
-- [x] Preserva��o da inicializa��o global do Koin realizada pelo `AetherisApplication`.
-- [x] Valida��o completa dos testes unit�rios, Android Lint e montagem do APK de Debug.
-- [x] Publica��o da altera��o no commit `5352403` (`fix: resolve Koin dependencies at activity level`).
-- [x] Sincroniza��o bem-sucedida entre `HEAD`, `main` e `origin/main`, com a �rvore de trabalho limpa.
+- [x] Refatoração isolada do arquivo `MainActivity.kt` para remover a dependência de um contexto Koin adicional dentro da árvore do Jetpack Compose.
+- [x] Resolução de `MeasurementViewModel` diretamente no ciclo de vida da `ComponentActivity` por meio do delegate `by viewModel()`.
+- [x] Resolução do singleton `ArCoreSessionManager` diretamente na Activity por meio do delegate `by inject()`.
+- [x] Passagem explícita das dependências para `MeasurementScreen`.
+- [x] Remoção do wrapper `KoinAndroidContext` da composição principal.
+- [x] Preservação da inicialização global do Koin realizada pelo `AetherisApplication`.
+- [x] Validação completa dos testes unitários, Android Lint e montagem do APK de Debug.
+- [x] Publicação da alteração no commit `5352403` (`fix: resolve Koin dependencies at activity level`).
+- [x] Sincronização bem-sucedida entre `HEAD`, `main` e `origin/main`, com a árvore de trabalho limpa.
 
-### ? Escopo do Dia
+### 🔍 Escopo do Dia
 
-O trabalho foi intencionalmente limitado a um �nico arquivo de produ��o:
+O trabalho foi intencionalmente limitado a um único arquivo de produção:
 
 ```text
 app/src/main/java/org/aetheris/app/MainActivity.kt
 ```
 
-A altera��o teve como objetivo tratar o aviso observado durante a execu��o no dispositivo:
+A alteração teve como objetivo tratar o aviso observado durante a execução no dispositivo:
 
 ```text
 No Koin context defined in Compose, fallback to default Koin context.
 ```
 
-O fallback funcionava corretamente porque o cont�iner global j� era iniciado em `AetherisApplication`, mas a resolu��o impl�cita dentro do Compose gerava uma mensagem desnecess�ria no Logcat.
+O fallback funcionava corretamente porque o contêiner global já era iniciado em `AetherisApplication`, mas a resolução implícita dentro do Compose gerava uma mensagem desnecessária no Logcat.
 
-### ?? Solu��o Aplicada
+### 🛠️ Solução Aplicada
 
-Antes da refatora��o, a `MeasurementScreen` resolvia suas depend�ncias por par�metros padr�o durante a composi��o:
+Antes da refatoração, a `MeasurementScreen` resolvia suas dependências por parâmetros padrão durante a composição:
 
 ```kotlin
 MeasurementScreen()
 ```
 
-A `MainActivity` tamb�m envolvia a interface com um contexto Compose adicional:
+A `MainActivity` também envolvia a interface com um contexto Compose adicional:
 
 ```kotlin
 KoinAndroidContext {
@@ -218,7 +339,7 @@ KoinAndroidContext {
 }
 ```
 
-Depois da refatora��o, a Activity passou a possuir explicitamente as depend�ncias associadas ao seu ciclo de vida:
+Depois da refatoração, a Activity passou a possuir explicitamente as dependências associadas ao seu ciclo de vida:
 
 ```kotlin
 private val measurementViewModel:
@@ -228,7 +349,7 @@ private val arCoreSessionManager:
     ArCoreSessionManager by inject()
 ```
 
-Essas inst�ncias s�o fornecidas diretamente � tela:
+Essas instâncias são fornecidas diretamente à tela:
 
 ```kotlin
 MeasurementScreen(
@@ -237,25 +358,25 @@ MeasurementScreen(
 )
 ```
 
-### ?? Impacto Arquitetural
+### 🏛️ Impacto Arquitetural
 
-1. **Ciclo de vida expl�cito do ViewModel:**
-- `MeasurementViewModel` permanece associado � `MainActivity`.
-- Mudan�as de configura��o continuam utilizando o gerenciamento padr�o de ViewModel do Android.
+1. **Ciclo de vida explícito do ViewModel:**
+- `MeasurementViewModel` permanece associado à `MainActivity`.
+- Mudanças de configuração continuam utilizando o gerenciamento padrão de ViewModel do Android.
 
-2. **Singleton da sess�o ARCore preservado:**
-- `ArCoreSessionManager` continua sendo fornecido pela mesma defini��o `single` do m�dulo Koin.
-- Nenhuma segunda sess�o ARCore � criada pela refatora��o.
+2. **Singleton da sessão ARCore preservado:**
+- `ArCoreSessionManager` continua sendo fornecido pela mesma definição `single` do módulo Koin.
+- Nenhuma segunda sessão ARCore é criada pela refatoração.
 
-3. **Composi��o mais simples:**
-- A �rvore Compose recebe depend�ncias prontas.
-- A tela permanece test�vel porque seus par�metros continuam podendo ser substitu�dos.
+3. **Composição mais simples:**
+- A árvore Compose recebe dependências prontas.
+- A tela permanece testável porque seus parâmetros continuam podendo ser substituídos.
 
-4. **Inicializa��o centralizada:**
-- `AetherisApplication` continua sendo o �nico ponto respons�vel por chamar `startKoin` e registrar `appModule`.
-- N�o existe um segundo cont�iner de depend�ncias controlado pela composi��o.
+4. **Inicialização centralizada:**
+- `AetherisApplication` continua sendo o único ponto responsável por chamar `startKoin` e registrar `appModule`.
+- Não existe um segundo contêiner de dependências controlado pela composição.
 
-### ? Valida��o
+### 📊 Validação
 
 Pipeline utilizado:
 
@@ -270,47 +391,35 @@ Resultado:
 BUILD SUCCESSFUL
 ```
 
-A altera��o n�o modificou regras de dom�nio, c�lculos m�tricos, contratos de reposit�rio, renderiza��o OpenGL ou estado de medi��o. Por isso, a su�te existente foi utilizada como teste de regress�o integral.
-
-### ? Controle de Vers�o
-
-```text
-Commit: 5352403
-Mensagem: fix: resolve Koin dependencies at activity level
-Branch: main
-Remoto: origin/main
-Status final: working tree clean
-```
-
 ---
 
-## ? [Dia 10] - 2026-08-30: Medi��o Tridimensional Sequencial, Volume com Incerteza e Valida��o em Hardware
+## 📦 [Dia 10] - 2026-08-30: Medição Tridimensional Sequencial, Volume com Incerteza e Validação em Hardware
 
-### ? Objetivos Conclu�dos
+### 🎯 Objetivos Concluídos
 
-- [x] Cria��o do modelo `DimensionAxis` para representar e ordenar os tr�s eixos espaciais: `WIDTH`, `HEIGHT` e `DEPTH`.
-- [x] Implementa��o de `SpatialDimensions` como estado imut�vel das medi��es confirmadas de largura, altura e profundidade.
-- [x] Inclus�o de propriedades derivadas para contagem de eixos medidos, identifica��o do pr�ximo eixo pendente e verifica��o de conclus�o da medi��o tridimensional.
-- [x] Cria��o do modelo `VolumeMeasurement`, representando volume em metros c�bicos e litros, margem de incerteza, limites m�nimo e m�ximo e incerteza relativa percentual.
-- [x] Implementa��o de formata��o m�trica autom�tica para apresenta��o em litros ou metros c�bicos.
-- [x] Cria��o do `CalculateVolumeUseCase` para calcular o volume aproximado da caixa delimitadora espacial a partir de tr�s medi��es lineares.
-- [x] Implementa��o da propaga��o independente das incertezas de largura, altura e profundidade no resultado volum�trico.
-- [x] Refatora��o do `MeasurementUiState` para armazenar dimens�es confirmadas, volume calculado, eixo atual e progresso completo da captura tridimensional.
-- [x] Refatora��o do `MeasurementViewModel` para coordenar o fluxo sequencial `WIDTH ? HEIGHT ? DEPTH`.
-- [x] Implementa��o da confirma��o individual de cada eixo, com limpeza das �ncoras entre as etapas e preserva��o das dimens�es j� registradas.
-- [x] C�lculo autom�tico do volume ap�s a confirma��o da profundidade.
-- [x] Implementa��o de reset parcial da dimens�o atual e reset completo da medi��o tridimensional.
-- [x] Registro de `CalculateVolumeUseCase` no m�dulo Koin e atualiza��o da inje��o do `MeasurementViewModel`.
-- [x] Refatora��o completa da `MeasurementScreen` com indicadores de progresso para largura, altura e profundidade.
-- [x] Inclus�o de controles contextuais para fixar pontos, confirmar dimens�es, refazer o eixo atual e reiniciar todo o processo.
-- [x] Inclus�o do painel final de volume com incerteza e resumo das tr�s dimens�es confirmadas.
-- [x] Cria��o e amplia��o das su�tes de testes de dom�nio, casos de uso, estado de interface e ViewModel.
-- [x] Valida��o integral por testes unit�rios, Android Lint e montagem do APK de Debug.
-- [x] Publica��o da funcionalidade no commit `5a07c5c` (`feat: add three-axis spatial volume measurement`).
+- [x] Criação do modelo `DimensionAxis` para representar e ordenar os três eixos espaciais: `WIDTH`, `HEIGHT` e `DEPTH`.
+- [x] Implementação de `SpatialDimensions` como estado imutável das medições confirmadas de largura, altura e profundidade.
+- [x] Inclusão de propriedades derivadas para contagem de eixos medidos, identificação do próximo eixo pendente e verificação de conclusão da medição tridimensional.
+- [x] Criação do modelo `VolumeMeasurement`, representando volume em metros cúbicos e litros, margem de incerteza, limites mínimo e máximo e incerteza relativa percentual.
+- [x] Implementação de formatação métrica automática para apresentação em litros ou metros cúbicos.
+- [x] Criação do `CalculateVolumeUseCase` para calcular o volume aproximado da caixa delimitadora espacial a partir de três medições lineares.
+- [x] Implementação da propagação independente das incertezas de largura, altura e profundidade no resultado volumétrico.
+- [x] Refatoração do `MeasurementUiState` para armazenar dimensões confirmadas, volume calculado, eixo atual e progresso completo da captura tridimensional.
+- [x] Refatoração do `MeasurementViewModel` para coordenar o fluxo sequencial `WIDTH → HEIGHT → DEPTH`.
+- [x] Implementação da confirmação individual de cada eixo, com limpeza das âncoras entre as etapas e preservação das dimensões já registradas.
+- [x] Cálculo automático do volume após a confirmação da profundidade.
+- [x] Implementação de reset parcial da dimensão atual e reset completo da medição tridimensional.
+- [x] Registro de `CalculateVolumeUseCase` no módulo Koin e atualização da injeção do `MeasurementViewModel`.
+- [x] Refatoração completa da `MeasurementScreen` com indicadores de progresso para largura, altura e profundidade.
+- [x] Inclusão de controles contextuais para fixar pontos, confirmar dimensões, refazer o eixo atual e reiniciar todo o processo.
+- [x] Inclusão do painel final de volume com incerteza e resumo das três dimensões confirmadas.
+- [x] Criação e ampliação das suítes de testes de domínio, casos de uso, estado de interface e ViewModel.
+- [x] Validação integral por testes unitários, Android Lint e montagem do APK de Debug.
+- [x] Publicação da funcionalidade no commit `5a07c5c` (`feat: add three-axis spatial volume measurement`).
 
-### ? Modelagem Matem�tica
+### 📐 Modelagem Matemática
 
-O volume aproximado � calculado como uma caixa delimitadora tridimensional:
+O volume aproximado é calculado como uma caixa delimitadora tridimensional:
 
 $$V = w \times h \times d$$
 
@@ -319,380 +428,224 @@ onde:
 - $h$ representa a altura;
 - $d$ representa a profundidade.
 
-A incerteza volum�trica � propagada considerando as incertezas independentes dos tr�s eixos:
+A incerteza volumétrica é propagada considerando as incertezas independentes dos três eixos:
 
 $$u_V = \sqrt{(h \times d \times u_w)^2 + (w \times d \times u_h)^2 + (w \times h \times u_d)^2}$$
 
-Essa formula��o evita divis�es por zero e continua v�lida quando uma das dimens�es medidas � igual a zero.
+Essa formulação evita divisões por zero e continua válida quando uma das dimensões medidas é igual a zero.
 
-O resultado � apresentado como uma estimativa geom�trica da caixa delimitadora do objeto, n�o como seu volume f�sico exato. Objetos com formas irregulares exigir�o segmenta��o espacial e reconstru��o geom�trica em etapas futuras.
-
-### ?? Decis�es de Arquitetura
-
-1. **Sequenciamento expl�cito dos eixos:**
-- O dom�nio define a ordem `WIDTH ? HEIGHT ? DEPTH` sem depender da interface Android.
-- O pr�ximo eixo � derivado das dimens�es ainda ausentes, reduzindo estados inconsistentes.
-
-2. **Estado imut�vel das dimens�es:**
-- Cada confirma��o produz uma nova inst�ncia de `SpatialDimensions`.
-- Medi��es anteriores s�o preservadas enquanto as �ncoras do eixo atual s�o liberadas.
-
-3. **Separa��o entre dist�ncia e volume:**
-- `DistanceMeasurement` representa medi��es lineares.
-- `VolumeMeasurement` representa o resultado volum�trico e sua incerteza.
-- `CalculateVolumeUseCase` concentra a regra matem�tica sem depend�ncias do Android ou ARCore.
-
-4. **Orquestra��o no ViewModel:**
-- A interface apenas emite eventos de posicionamento, confirma��o, repeti��o e reset.
-- O `MeasurementViewModel` controla a transi��o entre eixos e o c�lculo final.
-
-5. **Volume como aproxima��o AABB:**
-- O primeiro est�gio usa uma caixa delimitadora formada por largura, altura e profundidade.
-- A decis�o mant�m o fluxo test�vel e prepara a arquitetura para futura segmenta��o de objetos e nuvens de pontos.
-
-### ? Cobertura e Valida��o
-
-Foram adicionados ou ampliados testes para:
-- ordem e transi��o dos valores de `DimensionAxis`;
-- imutabilidade e progress�o de `SpatialDimensions`;
-- convers�o entre metros c�bicos e litros;
-- valida��o de volumes e incertezas n�o negativos e finitos;
-- limites m�nimo e m�ximo de `VolumeMeasurement`;
-- propaga��o matem�tica das incertezas dos tr�s eixos;
-- comportamento com dimens�es ou volume iguais a zero;
-- rejei��o de conjuntos incompletos de dimens�es;
-- progress�o de largura para altura e profundidade no estado visual;
-- confirma��o sequencial dos tr�s eixos pelo ViewModel;
-- limpeza das �ncoras entre dimens�es;
-- c�lculo autom�tico do volume ao concluir a profundidade;
-- reset parcial e completo da medi��o.
-
-Pipeline final executado:
-
-```bash
-./gradlew testDebugUnitTest lintDebug assembleDebug \
-  --no-configuration-cache
-```
-
-Resultado:
-
-```text
-BUILD SUCCESSFUL
-53 actionable tasks: 16 executed, 37 up-to-date
-```
-
-### ? Valida��o Inicial no Dispositivo
-
-O APK foi executado em um aparelho f�sico com ARCore. A sess�o:
-- iniciou corretamente;
-- carregou todas as depend�ncias do Koin;
-- processou aproximadamente 1.216 frames da c�mera;
-- encerrou com `Session::PauseWithAnalytics returning OK`;
-- n�o apresentou `FATAL EXCEPTION`, ANR ou crash do processo;
-- n�o apresentou exce��es Kotlin relacionadas �s novas dimens�es ou ao c�lculo de volume.
-
-O teste funcional completo n�o p�de ser conclu�do devido � baixa luminosidade do ambiente. O ARCore registrou dificuldade para encontrar pontos visuais consistentes e refinar planos f�sicos:
-- 246 ocorr�ncias internas de refinamento de plano sem inliers suficientes;
-- 5 ocorr�ncias internas de `ComputeDisparity` no servi�o nativo do ARCore;
-- uma ocorr�ncia de extra��o de caracter�sticas acima do tempo esperado;
-- atraso percept�vel na inicializa��o e no encerramento da sess�o.
-
-Apesar dessas mensagens nativas, n�o houve encerramento anormal. A valida��o funcional ser� repetida em ambiente bem iluminado e com superf�cies texturizadas antes de novas altera��es no pipeline de medi��o.
-
-### ?? Diagn�stico T�cnico
-
-1. **Baixa luminosidade e poucos marcos visuais:**
-- *Efeito:* dificuldade para estabilizar planos e habilitar a mira de posicionamento.
-- *A��o definida:* repetir o teste com ilumina��o uniforme, movimento lento da c�mera e superf�cies com textura.
-2. **Mensagens internas de `ComputeDisparity`:**
-- *Observa��o:* continuaram presentes no Google Play Services for AR mesmo com `DepthMode.DISABLED` na configura��o p�blica da sess�o.
-- *Decis�o:* manter o fallback sem Depth API e n�o alterar o dom�nio ou o ViewModel com base apenas em mensagens internas do servi�o nativo.
-3. **Aviso de contexto Compose do Koin:**
-- *Efeito:* o Koin utilizou corretamente o contexto global iniciado pelo `AetherisApplication`.
-- *Prioridade:* baixa; n�o afetou a resolu��o das depend�ncias nem o funcionamento do aplicativo.
-4. **Encerramento OpenGL/ARCore:**
-- *Observa��o:* ocorreu uma mensagem isolada de chamada OpenGL sem contexto corrente durante a desmontagem.
-- *Resultado:* a sess�o retornou `OK` e o processo encerrou normalmente.
-- *A��o definida:* repetir ciclos de abrir, minimizar, restaurar e fechar o aplicativo para verificar recorr�ncia.
-
-### ?? Decis�o de Arquitetura (ADR)
+### 🏛️ Decisões de Arquitetura
 
 - **ADR-015: Sequential Axis Capture and Uncertainty-Aware AABB Volume**
-  - **Contexto:** A medi��o de apenas uma dist�ncia n�o representa as dimens�es espaciais necess�rias para estimar volume e, futuramente, massa por densidade.
-  - **Decis�o:** Capturar largura, altura e profundidade como medi��es lineares independentes, associar cada uma a um eixo expl�cito, liberar as �ncoras entre etapas e calcular uma estimativa volum�trica AABB com propaga��o das incertezas.
-  - **Consequ�ncia:** O dom�nio permanece puro e test�vel, enquanto a apresenta��o ganha um fluxo progressivo capaz de evoluir posteriormente para segmenta��o autom�tica, reconstru��o 3D e modelos f�sicos espec�ficos por material.
+  - **Contexto:** A medição de apenas uma distância não representa as dimensões espaciais necessárias para estimar volume e massa.
+  - **Decisão:** Capturar largura, altura e profundidade como medições lineares independentes, associar cada uma a um eixo explícito, liberar as âncoras entre etapas e calcular uma estimativa volumétrica AABB com propagação das incertezas.
 
 ---
 
-## ?? [Dia 09] - 2026-08-29: Hardening do Pipeline ARCore, Seguran�a Num�rica e Regress�o Completa
+## 🛡️ [Dia 09] - 2026-08-29: Hardening do Pipeline ARCore, Segurança Numérica e Regressão Completa
 
-### ? Objetivos Conclu�dos
+### 🎯 Objetivos Concluídos
 
-- [x] Migra��o definitiva do estado espacial legado para `SpatialFrameData`, com atualiza��o do contrato `SpatialSensorRepository`, dos reposit�rios falsos e dos testes do `MeasurementViewModel`.
-- [x] Corre��o da su�te de testes do ARCore, incluindo os mocks de `Frame.camera`, `TrackingState`, `Point.orientationMode`, `Plane.isPoseInPolygon` e cria��o de �ncoras.
-- [x] Adequa��o do ciclo de vida de `PointCloud` ao contrato `AutoCloseable`, garantindo `pointCloud.close()` por meio de `use`, inclusive quando a leitura do buffer falha.
-- [x] Estabiliza��o do `SpatialSensorRepositoryImpl` com viewport atualizada atomicamente, convers�o segura de coordenadas normalizadas para pixels e libera��o defensiva de �ncoras.
-- [x] Tratamento dos estados `TRACKING`, `PAUSED` e `STOPPED` das �ncoras, preservando a �ltima posi��o conhecida durante pausas tempor�rias e removendo �ncoras encerradas.
-- [x] Refor�o do `ArCoreHitTestProcessor` para validar c�mera, coordenadas, planos, pontos orientados e `DepthPoint`, retornando `null` diante de indisponibilidade transit�ria do pipeline nativo.
-- [x] Refor�o do `ArCoreFrameProcessor` com valida��o de confian�a e coordenadas finitas, al�m de tratamento para `DeadlineExceededException`, `NotYetAvailableException` e `ResourceExhaustedException`.
-- [x] Refatora��o dos modelos `Point3D`, `BoundingBox3D`, `DistanceMeasurement`, `MassEstimate`, `ScreenPoint2D`, `SpatialFrameData` e `TrackingStatus`.
-- [x] Ado��o de c�lculos intermedi�rios em precis�o `Double` para dist�ncia, normaliza��o e ponto m�dio, reduzindo riscos de overflow e perda num�rica.
-- [x] Consolida��o de `ProjectWorldToScreenUseCase`, `CalculateDistanceUseCase`, `EstimateSpatialDimensionsUseCase` e `SpatialLineMath` sem depend�ncias Android na camada de dom�nio.
-- [x] Hardening dos renderizadores `BackgroundRenderer` e `SpatialLineRenderer`, com valida��o de matrizes, preven��o de cria��o duplicada, limpeza de shaders e libera��o segura de VAO, VBO, programas e texturas.
-- [x] Simplifica��o da inicializa��o do Koin: `AetherisApplication` mant�m o contexto global e `MainActivity` utiliza a inje��o automaticamente, aplicando `AetherisTheme`.
-- [x] Desativa��o intencional de `Config.DepthMode.AUTOMATIC` ap�s o diagn�stico de falha nativa em `ComputeDisparity`, preservando planos, hit tests, �ncoras e point cloud.
-- [x] Estabelecimento de uma baseline verde com **32/32 testes unit�rios aprovados** por `testDebugUnitTest`.
+- [x] Migração definitiva do estado espacial legado para `SpatialFrameData`, com atualização do contrato `SpatialSensorRepository`, dos repositórios falsos e dos testes do `MeasurementViewModel`.
+- [x] Correção da suíte de testes do ARCore, incluindo os mocks de `Frame.camera`, `TrackingState`, `Point.orientationMode`, `Plane.isPoseInPolygon` e criação de âncoras.
+- [x] Adequação do ciclo de vida de `PointCloud` ao contrato `AutoCloseable`, garantindo `pointCloud.close()` por meio de `use`, inclusive quando a leitura do buffer falha.
+- [x] Estabilização do `SpatialSensorRepositoryImpl` com viewport atualizada atomicamente, conversão segura de coordenadas normalizadas para pixels e liberação defensiva de âncoras.
+- [x] Tratamento dos estados `TRACKING`, `PAUSED` e `STOPPED` das âncoras, preservando a última posição conhecida durante pausas temporárias e removendo âncoras encerradas.
+- [x] Reforço do `ArCoreHitTestProcessor` para validar câmera, coordenadas, planos, pontos orientados e `DepthPoint`, retornando `null` diante de indisponibilidade transitória do pipeline nativo.
+- [x] Reforço do `ArCoreFrameProcessor` com validação de confiança e coordenadas finitas, além de tratamento para `DeadlineExceededException`, `NotYetAvailableException` e `ResourceExhaustedException`.
+- [x] Refatoração dos modelos `Point3D`, `BoundingBox3D`, `DistanceMeasurement`, `MassEstimate`, `ScreenPoint2D`, `SpatialFrameData` e `TrackingStatus`.
+- [x] Adoção de cálculos intermediários em precisão `Double` para distância, normalização e ponto médio, reduzindo riscos de overflow e perda numérica.
+- [x] Consolidação de `ProjectWorldToScreenUseCase`, `CalculateDistanceUseCase`, `EstimateSpatialDimensionsUseCase` e `SpatialLineMath` sem dependências Android na camada de domínio.
+- [x] Hardening dos renderizadores `BackgroundRenderer` e `SpatialLineRenderer`, com validação de matrizes, prevenção de criação duplicada, limpeza de shaders e liberação segura de VAO, VBO, programas e texturas.
+- [x] Simplificação da inicialização do Koin: `AetherisApplication` mantém o contexto global e `MainActivity` utiliza a injeção automaticamente, aplicando `AetherisTheme`.
+- [x] Desativação intencional de `Config.DepthMode.AUTOMATIC` após o diagnóstico de falha nativa em `ComputeDisparity`, preservando planos, hit tests, âncoras e point cloud.
+- [x] Estabelecimento de uma baseline verde com **32/32 testes unitários aprovados** por `testDebugUnitTest`.
 
-### ?? Desafios de Engenharia & Diagn�stico
-
-1. **Evolu��o incompat�vel do contrato espacial:**
-- *Causa:* Os testes ainda utilizavam `SpatialData`, enquanto a produ��o j� expunha `StateFlow<SpatialFrameData>` e novos m�todos de hit test e ancoragem.
-- *Solu��o:* Atualiza��o dos doubles de teste, assinaturas e propriedades observadas, mantendo `normalizedX` e `normalizedY` compat�veis com a interface.
-2. **Mocks incompletos das classes ARCore:**
-- *Causa:* O processador passou a validar `frame.camera.trackingState` e `Point.orientationMode`, mas os mocks n�o forneciam esses comportamentos e geravam `MockKException`.
-- *Solu��o:* Modelagem expl�cita do estado da c�mera e do modo `ESTIMATED_SURFACE_NORMAL`, preservando as valida��es usadas em produ��o.
-3. **Libera��o incorreta de `PointCloud` nos testes:**
-- *Causa:* A implementa��o utiliza `use`, que encerra o recurso por `close()`, enquanto os testes verificavam a chamada antiga a `release()`.
-- *Solu��o:* Atualiza��o dos testes para verificar exatamente uma chamada a `pointCloud.close()`, inclusive nos fluxos excepcionais.
-4. **Falha nativa da Depth API no dispositivo:**
-- *Causa:* Embora o aparelho anunciasse suporte a `DepthMode.AUTOMATIC`, o pipeline apresentava falha interna em `ComputeDisparity`.
-- *Solu��o:* Manuten��o da detec��o de suporte como telemetria e configura��o efetiva de `DepthMode.DISABLED`, evitando instabilidade sem remover as fun��es centrais de medi��o.
-5. **Gerenciamento defensivo de recursos OpenGL e ARCore:**
-- *Causa:* Falhas durante compila��o de shaders, vincula��o de programas, cria��o de buffers ou encerramento de �ncoras poderiam deixar recursos parcialmente inicializados.
-- *Solu��o:* Rotinas idempotentes de destrui��o, restaura��o de bindings em blocos `finally`, valida��o de handles e encapsulamento de `Anchor.detach()`.
-
-### ? M�tricas de Valida��o
-
-- **Regress�o inicial:** 18 falhas em 32 testes ap�s a evolu��o dos contratos.
-- **Primeira estabiliza��o:** redu��o para 13 falhas, concentradas nos mocks ARCore e no reposit�rio.
-- **Segunda estabiliza��o:** redu��o para 3 falhas, todas no `SpatialSensorRepositoryTest`.
-- **Resultado final registrado:** **32 testes executados, 0 falhas ? BUILD SUCCESSFUL**.
-- **Comando de valida��o:** `./gradlew testDebugUnitTest --no-configuration-cache`.
-
-### ?? Decis�es de Arquitetura (ADR)
+### 🏛️ Decisões de Arquitetura (ADR)
 
 - **ADR-014: Defensive ARCore/OpenGL Resource Management and Depth Fallback**
-  - **Contexto:** O pipeline combina objetos nativos de vida curta (`Frame`, `PointCloud`, `Anchor`), recursos de GPU dependentes do contexto EGL e funcionalidades opcionais que podem falhar mesmo quando declaradas como suportadas pelo hardware.
-  - **Decis�o:** Tratar indisponibilidades transit�rias nas bordas da camada `data`, garantir libera��o determin�stica dos recursos, manter o dom�nio livre de depend�ncias Android e permitir fallback expl�cito da Depth API sem interromper planos, hit tests e ancoragem.
+  - **Contexto:** O pipeline combina objetos nativos de vida curta (`Frame`, `PointCloud`, `Anchor`), recursos de GPU dependentes do contexto EGL e funcionalidades opcionais que podem falhar no hardware.
+  - **Decisão:** Tratar indisponibilidades transitórias nas bordas da camada `data`, garantir liberação determinística dos recursos, manter o domínio livre de dependências Android e permitir fallback explícito da Depth API sem interromper o fluxo central.
 
 ---
 
-## ? [Dia 08] - 2026-08-29: Proje��o World-to-Screen, Badge Flutuante em Compose e Ancoragem Anti-Drift (ARCore Anchor)
+## 🚀 [Dia 08] - 2026-08-29: Projeção World-to-Screen, Badge Flutuante em Compose e Ancoragem Anti-Drift (ARCore Anchor)
 
-### ? Objetivos Conclu�dos
+### 🎯 Objetivos Concluídos
 
-- [x] Implementa��o do caso de uso `ProjectWorldToScreenUseCase` realizando a transforma��o projetiva completa ($3\text{D} \to 2\text{D}$): coordenadas de mundo $\to$ clip space ($M_{proj} \times M_{view}$) $\to$ coordenadas normalizadas de dispositivo (NDC) $\to$ espa�o de tela em pixels.
-- [x] Adi��o de guarda de *Frustum Clipping* ($w_c \le 0$) para ocultar instantaneamente o badge quando o vetor de medi��o estiver atr�s do plano da c�mera, evitando divis�o por zero e artefatos de proje��o invertida.
-- [x] Renderiza��o da etiqueta flutuante reativa (`FloatingMeasurementBadge`) em Jetpack Compose, acompanhando o ponto m�dio do vetor espacial com leitura de dist�ncia e incerteza ($\pm\sigma$) em tempo real.
-- [x] Modelagem de n�s espaciais (`AnchorSlot.START`, `AnchorSlot.END`) no dom�nio e extens�o de `SpatialFrameData`.
-- [x] Implementa��o de `createAnchorAt` em `ArCoreHitTestProcessor` com suporte a planos poligonais e pontos ToF/Depth.
-- [x] Gerenciamento determin�stico do ciclo de vida nativo de �ncoras (`createAnchor`, `detach`) no `SpatialSensorRepositoryImpl`, corrigindo automaticamente as coordenadas $(tx, ty, tz)$ a cada otimiza��o do grafo de poses do SLAM.
-- [x] Reatividade no `MeasurementViewModel` propagando medi��es corrigidas continuamente sem provocar *GC churn*.
-- [x] Resolu��o de conflito estrutural de *Class Shadowing* no source set de testes e consolida��o de **25/25 testes unit�rios na JVM** passando com MockK e Google Truth.
-- [x] Registro da decis�o arquitetural formal no `ADR-013`.
+- [x] Implementação do caso de uso `ProjectWorldToScreenUseCase` realizando a transformação projetiva completa ($3\text{D} \to 2\text{D}$): coordenadas de mundo $\to$ clip space ($M_{proj} \times M_{view}$) $\to$ coordenadas normalizadas de dispositivo (NDC) $\to$ espaço de tela em pixels.
+- [x] Adição de guarda de *Frustum Clipping* ($w_c \le 0$) para ocultar instantaneamente o badge quando o vetor de medição estiver atrás do plano da câmera, evitando divisão por zero e artefatos de projeção invertida.
+- [x] Renderização da etiqueta flutuante reativa (`FloatingMeasurementBadge`) em Jetpack Compose, acompanhando o ponto médio do vetor espacial com leitura de distância e incerteza ($\pm\sigma$) em tempo real.
+- [x] Modelagem de nós espaciais (`AnchorSlot.START`, `AnchorSlot.END`) no domínio e extensão de `SpatialFrameData`.
+- [x] Implementação de `createAnchorAt` em `ArCoreHitTestProcessor` com suporte a planos poligonais e pontos ToF/Depth.
+- [x] Gerenciamento determinístico do ciclo de vida nativo de âncoras (`createAnchor`, `detach`) no `SpatialSensorRepositoryImpl`, corrigindo automaticamente as coordenadas $(tx, ty, tz)$ a cada otimização do grafo de poses do SLAM.
+- [x] Reatividade no `MeasurementViewModel` propagando medições corrigidas continuamente sem provocar *GC churn*.
+- [x] Resolução de conflito estrutural de *Class Shadowing* no source set de testes e consolidação de **25/25 testes unitários na JVM** passando com MockK e Google Truth.
+- [x] Registro da decisão arquitetural formal no `ADR-013`.
 
-### ?? Desafios de Engenharia & Diagn�stico em Hardware
-
-1. **Class Shadowing no Source Set de Testes:**
-- *Causa:* O arquivo `ArCoreHitTestProcessorTest.kt` continha uma declara��o acidental de `class ArCoreHitTestProcessor` no diret�rio `src/test/`, mascarando a classe real de produ��o em `src/main/` e impedindo a resolu��o de novos m�todos durante a compila��o de testes unit�rios.
-- *Solu��o:* Substitui��o do stub por uma su�te de testes unit�rios leg�tima cobrindo cria��o de �ncoras, hit-testing de planos e valida��o de superf�cies.
-2. **Deriva��o M�trica Espacial (Drift em Medi��es Longas):**
-- *Causa:* Coordenadas euclidianas est�ticas $(X, Y, Z)$ salvas no primeiro frame sofriam descolamento visual quando o otimizador SLAM/BA do ARCore recalculava a origem do mundo durante a movimenta��o do usu�rio.
-- *Solu��o:* Vincula��o dos n�s a objetos nativos `com.google.ar.core.Anchor` com consulta din�mica da `Pose` a cada ciclo de `updateFrameData`.
-3. **Frustum Culling de Elementos 2D:**
-- *Causa:* Proje��es matem�ticas convencionais sem valida��o de $w_c$ geravam posi��es de tela espelhadas quando o usu�rio virava de costas para o objeto medido.
-- *Solu��o:* Retorno determin�stico de `null` no caso de uso caso $w_c \le 0.001\text{f}$, instruindo o Compose a n�o desenhar o badge fora do cone de vis�o da c�mera.
-
-### ? M�tricas de Valida��o no Dispositivo (Motorola Edge 50 Fusion)
-
-- **Converg�ncia VIO (Visual-Inertial Odometry):** Inicializa��o recorde atingindo `VIO_TRACKING` em apenas **398,05 ms** (redu��o de 9,7% em rela��o aos 441 ms do Dia 07).
-- **Consist�ncia Geom�trica do SLAM:** Otimiza��o de mapa (`MAP SOLVE: USER_SUCCESS`) reduzindo o custo de $20.349$ para $171$ em 4 itera��es, com 26 keyframes e 212 marcos mapeados.
-- **Taxa de Inliers Visuais:** **93,1% de inliers consistentes** (94 pontos rastreados simultaneamente).
-- **Estabilidade de Ancoragem:** Deslocamento nulo da linha 3D e do badge flutuante ap�s caminhada de 10 metros com perda e recupera��o total de linha de visada.
-- **Performance de Testes:** 25 testes unit�rios executados em ~2s na JVM.
-
-### ?? Decis�es de Arquitetura (ADR)
+### 🏛️ Decisões de Arquitetura (ADR)
 
 - **ADR-013: Native ARCore Anchor Tracking & Pose Graph Correction**
-  - **Contexto:** Necessidade de manter pontos de medi��o milimetricamente fixos em rela��o aos objetos reais durante movimenta��es longas no espa�o.
-  - **Decis�o:** Associa��o dos pontos A e B a n�s nativos `Anchor` do ARCore, propaga��o frame a frame das coordenadas corrigidas pelo grafo de poses via `StateFlow` e invoca��o determin�stica de `anchor.detach()` para preven��o de vazamento de mem�ria nativa C++.
+  - **Contexto:** Necessidade de manter pontos de medição milimetricamente fixos em relação aos objetos reais durante movimentações longas no espaço.
+  - **Decisão:** Associação dos pontos A e B a nós nativos `Anchor` do ARCore, propagação frame a frame das coordenadas corrigidas pelo grafo de poses via `StateFlow` e invocação determinística de `anchor.detach()` para prevenção de vazamento de memória nativa C++.
 
 ---
 
-## ? [Dia 07] - 2026-08-28: Pipeline Gr�fico OpenGL ES 3.0, Estabiliza��o EGL e Compatibilidade 16 KB
+## 🎨 [Dia 07] - 2026-08-28: Pipeline Gráfico OpenGL ES 3.0, Estabilização EGL e Compatibilidade 16 KB
 
-### ? Objetivos Conclu�dos
+### 🎯 Objetivos Concluídos
 
-- [x] Cria��o do `BackgroundRenderer` com shaders GLSL ES 3.0 e suporte a `GL_TEXTURE_EXTERNAL_OES` para proje��o com *zero-copy* do feed de v�deo da c�mera.
-- [x] Implementa��o do `SpatialLineRenderer` em OpenGL ES 3.0 para tra�ado dos n�s de ancoragem (`GL_POINTS`) e do vetor de medi��o (`GL_LINES`) no espa�o tridimensional.
-- [x] Multiplica��o matricial Model-View-Projection ($M_{clip} = M_{proj} \times M_{view} \times M_{model}$) em tempo real alimentada pelas matrizes da c�mera ARCore.
-- [x] Prealoca��o est�tica de matrizes e buffers nativos diretos (`FloatBuffer`) garantindo zero aloca��o de mem�ria no loop de renderiza��o (Zero GC Churn).
-- [x] Integra��o completa dos renderizadores no ciclo do `GLSurfaceView` (`onSurfaceCreated`, `onSurfaceChanged`, `onDrawFrame`) em `ArCameraFeed`.
-- [x] Conex�o dos pontos A e B do `uiState` � camada gr�fica via `rememberUpdatedState`.
-- [x] Cria��o da su�te `SpatialLineMathTest` e atualiza��o de `MeasurementViewModelTest` com 100% dos testes unit�rios passando na JVM.
-- [x] Registro da decis�o arquitetural no `ADR-012`.
+- [x] Criação do `BackgroundRenderer` com shaders GLSL ES 3.0 e suporte a `GL_TEXTURE_EXTERNAL_OES` para projeção com *zero-copy* do feed de vídeo da câmera.
+- [x] Implementação do `SpatialLineRenderer` em OpenGL ES 3.0 para traçado dos nós de ancoragem (`GL_POINTS`) e do vetor de medição (`GL_LINES`) no espaço tridimensional.
+- [x] Multiplicação matricial Model-View-Projection ($M_{clip} = M_{proj} \times M_{view} \times M_{model}$) em tempo real alimentada pelas matrizes da câmera ARCore.
+- [x] Prealocação estática de matrizes e buffers nativos diretos (`FloatBuffer`) garantindo zero alocação de memória no loop de renderização (Zero GC Churn).
+- [x] Integração completa dos renderizadores no ciclo do `GLSurfaceView` (`onSurfaceCreated`, `onSurfaceChanged`, `onDrawFrame`) em `ArCameraFeed`.
+- [x] Conexão dos pontos A e B do `uiState` à camada gráfica via `rememberUpdatedState`.
+- [x] Criação da suíte `SpatialLineMathTest` e atualização de `MeasurementViewModelTest` com 100% dos testes unitários passando na JVM.
+- [x] Registro da decisão arquitetural no `ADR-012`.
 
-### ?? Desafios de Engenharia & Diagn�stico em Hardware
-
-1. **Condi��o de Corrida no Ciclo de Vida do ARCore (`AR_ERROR_SESSION_PAUSED`):**
-- *Causa:* A `GLThread` chamava `session.update()` antes da Main Thread executar `session.resume()`, e o encerramento concorrente no `onPause` causava falha de precondi��o no scheduler do MediaPipe.
-- *Solu��o:* Centraliza��o estrita do ciclo de vida na Main Thread via flag `@Volatile isRunning` e sincroniza��o determin�stica no `DisposableEffect` (no pause: paralisa a `GLSurfaceView` antes da `Session`; no resume: retoma a `Session` antes da `GLSurfaceView`).
-2. **Compatibilidade com P�ginas de Mem�ria de 16 KB (Android 15+):**
-- *Causa:* O bin�rio nativo legado `libimage_processing_util_jni.so` do CameraX continha segmentos `LOAD` desalinhados.
-- *Solu��o:* Remo��o de depend�ncias redundantes do CameraX (c�mera gerenciada pelo ARCore), upgrade do ARCore para `1.46.0` e configura��o de `jniLibs.useLegacyPackaging = false` no Gradle.
-3. **Flickering e Artefatos Crom�ticos na GPU Qualcomm Adreno:**
-- *Causa:* Chamadas repetidas a `session.setCameraTextureNames()` a 60 FPS no `onDrawFrame` e coordenadas UV n�o inicializadas no primeiro frame.
-- *Solu��o:* Vincula��o at�mica �nica do ID de textura OES, amostragem obrigat�ria com `GL_CLAMP_TO_EDGE` e transforma��o cont�nua de coordenadas normalizadas no `BackgroundRenderer`.
-
-### ? M�tricas de Valida��o no Dispositivo (Motorola Edge 50 Fusion)
-
-- **Taxa de Quadros:** 60 FPS cont�nuos e sustentados ao longo de mais de 850 frames de v�deo renderizados.
-- **Converg�ncia VIO (Visual-Inertial Odometry):** Transi��o para `VIO_TRACKING` em apenas **441 ms**.
-- **Mapeamento Espacial 3D:** Constru��o de mapa ADF contendo 26 keyframes, 252 landmarks f�sicos e taxa de inliers visuais de **94,6%**.
-- **Performance de Testes:** Su�te completa de testes da JVM executada em ~4s.
-
-### ?? Decis�es de Arquitetura (ADR)
+### 🏛️ Decisões de Arquitetura (ADR)
 
 - **ADR-012: Zero-Copy OES Camera Texture and OpenGL ES 3.0 Spatial Geometry Pipeline**
-  - **Contexto:** Necessidade de renderiza��o em alta frequ�ncia (60 FPS) do v�deo da c�mera e da geometria m�trica sem aloca��es din�micas na GPU/CPU.
-  - **Decis�o:** Ado��o de textura externa OES via GLSL ES 3.0, prealoca��o est�tica de buffers/matrizes e consumo s�ncrono do estado do Compose pela thread gr�fica EGL.
+  - **Contexto:** Necessidade de renderização em alta frequência (60 FPS) do vídeo da câmera e da geometria métrica sem alocações dinâmicas na GPU/CPU.
+  - **Decisão:** Adoção de textura externa OES via GLSL ES 3.0, prealocação estática de buffers/matrizes e consumo síncrono do estado do Compose pela thread gráfica EGL.
 
 ---
 
-## ? [Dia 06] - 2026-08-27: Spatial Raycasting, Polygon Gating e Testes Unit�rios de Colis�o
+## 🎯 [Dia 06] - 2026-08-27: Spatial Raycasting, Polygon Gating e Testes Unitários de Colisão
 
-### ? Objetivos Conclu�dos
+### 🎯 Objetivos Concluídos
 
-- [x] Cria��o do processador de baixo n�vel `ArCoreHitTestProcessor` para proje��o de raios �pticos a partir de coordenadas normalizadas de tela $[0.0, 1.0]$.
-- [x] Implementa��o de filtragem estrita por pol�gono convexo (`isPoseInPolygon`) para eliminar extrapola��es de planos infinitos e falsos positivos no v�cuo.
-- [x] Estabelecimento de fallback determin�stico para pontos ToF / Depth API (`Point`) com rastreamento ativo.
-- [x] Refatora��o do `SpatialSensorRepositoryImpl`, eliminando a busca heur�stica 2D em favor do raycasting nativo do ARCore.
-- [x] Mapeamento bidirecional de viewport entre `GLSurfaceView` (`onSurfaceChanged`), `ArCameraFeed`, reposit�rio e `MeasurementViewModel`.
-- [x] Su�te completa de testes unit�rios na JVM (`ArCoreHitTestProcessorTest`) cobrindo 6 cen�rios de colis�o, planos fora de limites, clamping de tela e descarte de poses inst�veis com MockK e Google Truth.
-- [x] Registro da decis�o t�cnica formal no `ADR-011`.
-- [x] Valida��o integral da su�te de testes unit�rios (`./gradlew testDebugUnitTest`) executada em 4s com cache.
+- [x] Criação do processador de baixo nível `ArCoreHitTestProcessor` para projeção de raios ópticos a partir de coordenadas normalizadas de tela $[0.0, 1.0]$.
+- [x] Implementação de filtragem estrita por polígono convexo (`isPoseInPolygon`) para eliminar extrapolações de planos infinitos e falsos positivos no vácuo.
+- [x] Estabelecimento de fallback determinístico para pontos ToF / Depth API (`Point`) com rastreamento ativo.
+- [x] Refatoração do `SpatialSensorRepositoryImpl`, eliminando a busca heurística 2D em favor do raycasting nativo do ARCore.
+- [x] Mapeamento bidirecional de viewport entre `GLSurfaceView` (`onSurfaceChanged`), `ArCameraFeed`, repositório e `MeasurementViewModel`.
+- [x] Suíte completa de testes unitários na JVM (`ArCoreHitTestProcessorTest`) cobrindo 6 cenários de colisão, planos fora de limites, clamping de tela e descarte de poses instáveis com MockK e Google Truth.
+- [x] Registro da decisão técnica formal no `ADR-011`.
+- [x] Validação integral da suíte de testes unitários (`./gradlew testDebugUnitTest`) executada em 4s com cache.
 
-### ?? Decis�es de Arquitetura (ADR)
+### 🏛️ Decisões de Arquitetura (ADR)
 
 - **ADR-011: Spatial Raycasting and Convex Polygon Gating**
-  - **Contexto:** A busca heur�stica 2D anterior gerava imprecis�o m�trica cumulativa e n�o garantia que os pontos ancorados pertencessem a superf�cies f�sicas coplanares ou est�veis.
-  - **Decis�o:** Ado��o do `Frame.hitTest` nativo com prioriza��o de `Plane` dentro do pol�gono de suporte (`isPoseInPolygon`), fallback para pontos de profundidade ToF e convers�o direta da `Pose` do ARCore para a entidade imut�vel de dom�nio `Point3D(x, y, z)` sem contaminar a camada `domain` com o SDK Android.
+  - **Contexto:** A busca heurística 2D anterior gerava imprecisão métrica cumulativa e não garantia que os pontos ancorados pertencessem a superfícies físicas coplanares ou estáveis.
+  - **Decisão:** Adoção do `Frame.hitTest` nativo com priorização de `Plane` dentro do polígono de suporte (`isPoseInPolygon`), fallback para pontos de profundidade ToF e conversão direta da `Pose` do ARCore para a entidade imutável de domínio `Point3D(x, y, z)` sem contaminar a camada `domain` com o SDK Android.
 
 ---
 
-## ? [Dia 05] - 2026-08-26: Hardware �ptico, Ciclo de Vida ARCore e Testes Unit�rios de Apresenta��o
+## 📱 [Dia 05] - 2026-08-26: Hardware Óptico, Ciclo de Vida ARCore e Testes Unitários de Apresentação
 
-### ? Objetivos Conclu�dos
+### 🎯 Objetivos Concluídos
 
-- [x] Implementa��o do gerenciador declarativo de permiss�es em tempo de execu��o `CameraPermissionHandler` no Jetpack Compose.
-- [x] Cria��o do `ArCoreSessionManager` para controle do ciclo de vida da sess�o AR, ativa��o do sensor de profundidade (`DepthMode.AUTOMATIC`) e libera��o de recursos de mem�ria.
-- [x] Constru��o do componente visual `ArCameraFeed` conectando `GLSurfaceView` (OpenGL ES 3.0) ao ciclo de vida do Compose via `DisposableEffect` e `LifecycleEventObserver`.
-- [x] Integra��o do feed da c�mera na `MeasurementScreen` como camada base (`z-index: 0`) sob o HUD t�tico.
+- [x] Implementação do gerenciador declarativo de permissões em tempo de execução `CameraPermissionHandler` no Jetpack Compose.
+- [x] Criação do `ArCoreSessionManager` para controle do ciclo de vida da sessão AR, ativação do sensor de profundidade (`DepthMode.AUTOMATIC`) e liberação de recursos de memória.
+- [x] Construção do componente visual `ArCameraFeed` conectando `GLSurfaceView` (OpenGL ES 3.0) ao ciclo de vida do Compose via `DisposableEffect` e `LifecycleEventObserver`.
+- [x] Integração do feed da câmera na `MeasurementScreen` como camada base (`z-index: 0`) sob o HUD tático.
 - [x] Tratamento de telemetria de rastreamento (`TrackingState`) no `MeasurementViewModel` sem quebrar o desacoplamento de camadas da Clean Architecture.
-- [x] Padroniza��o da biblioteca `kotlinx-coroutines-test` no cat�logo de depend�ncias (`gradle/libs.versions.toml` e `app/build.gradle.kts`).
-- [x] Cria��o da su�te de testes unit�rios `MeasurementViewModelTest` com dubl� de reposit�rio (`FakeSpatialSensorRepository`), cobrindo fluxo de ancoragem de Pontos A/B, c�lculo determin�stico de dist�ncia, reset de medi��o e emiss�o de telemetria reativa.
-- [x] Valida��o integral da su�te de testes unit�rios e compila��o do APK de Debug (`./gradlew testDebugUnitTest assembleDebug`).
+- [x] Padronização da biblioteca `kotlinx-coroutines-test` no catálogo de dependências (`gradle/libs.versions.toml` e `app/build.gradle.kts`).
+- [x] Criação da suíte de testes unitários `MeasurementViewModelTest` com dublê de repositório (`FakeSpatialSensorRepository`), cobrindo fluxo de ancoragem de Pontos A/B, cálculo determinístico de distância, reset de medição e emissão de telemetria reativa.
+- [x] Validação integral da suíte de testes unitários e compilação do APK de Debug (`./gradlew testDebugUnitTest assembleDebug`).
 
-### ?? Decis�es de Arquitetura (ADR)
+### 🏛️ Decisões de Arquitetura (ADR)
 
-- **ADR-009: Gerenciamento Declarativo de Permiss�es �pticas no Compose**
-  - **Contexto:** O ARCore exige permiss�o de c�mera em tempo de execu��o. O fluxo tradicional baseado em callbacks imperativos de `Activity` acopla a camada de apresenta��o ao framework e dificulta a modulariza��o.
-  - **Decis�o:** Cria��o do componente `CameraPermissionHandler` utilizando `rememberLauncherForActivityResult`, garantindo tela de bloqueio e solicita��o reativa sob demanda diretamente na �rvore do Compose.
+- **ADR-009: Gerenciamento Declarativo de Permissões Ópticas no Compose**
+  - **Contexto:** O ARCore exige permissão de câmera em tempo de execução. O fluxo tradicional baseado em callbacks imperativos de `Activity` acopla a camada de apresentação ao framework e dificulta a modularização.
+  - **Decisão:** Criação do componente `CameraPermissionHandler` utilizando `rememberLauncherForActivityResult`, garantindo tela de bloqueio e solicitação reativa sob demanda diretamente na árvore do Compose.
 - **ADR-010: Isolamento de Ciclo de Vida do ARCore e Contexto EGL**
-  - **Contexto:** A `GLSurfaceView` e a sess�o ARCore exigem sincroniza��o estrita com o ciclo de vida do Android (`ON_RESUME`, `ON_PAUSE`, `ON_DESTROY`) para evitar vazamentos de mem�ria e corrup��o do contexto gr�fico.
-  - **Decis�o:** Encapsulamento da inicializa��o e destrui��o no `ArCoreSessionManager`, acoplado ao ciclo de vida da tela via `DisposableEffect` dentro de `ArCameraFeed`.
+  - **Contexto:** A `GLSurfaceView` e a sessão ARCore exigem sincronização estrita com o ciclo de vida do Android (`ON_RESUME`, `ON_PAUSE`, `ON_DESTROY`) para evitar vazamentos de memória e corrupção do contexto gráfico.
+  - **Decisão:** Encapsulamento da inicialização e destruição no `ArCoreSessionManager`, acoplado ao ciclo de vida da tela via `DisposableEffect` dentro de `ArCameraFeed`.
 
 ---
 
-## ? [Dia 04] - 2026-08-25: Processamento de Buffers AR e Interface HUD em Jetpack Compose
+## 📐 [Dia 04] - 2026-08-25: Processamento de Buffers AR e Interface HUD em Jetpack Compose
 
-### ? Objetivos Conclu�dos
+### 🎯 Objetivos Concluídos
 
-- [x] Cria��o do extrator de baixo n�vel `ArCoreFrameProcessor` com filtro de confian�a para convers�o de `FloatBuffer` em `List<Point3D>`.
-- [x] Modelagem do estado de interface `MeasurementUiState` e implementa��o do `MeasurementViewModel` com Unidirectional Data Flow (UDF) sobre `StateFlow`.
-- [x] Constru��o da tela de metrologia espacial `MeasurementScreen` em Jetpack Compose com design estilo HUD cient�fico:
+- [x] Criação do extrator de baixo nível `ArCoreFrameProcessor` com filtro de confiança para conversão de `FloatBuffer` em `List<Point3D>`.
+- [x] Modelagem do estado de interface `MeasurementUiState` e implementação do `MeasurementViewModel` com Unidirectional Data Flow (UDF) sobre `StateFlow`.
+- [x] Construção da tela de metrologia espacial `MeasurementScreen` em Jetpack Compose com design estilo HUD científico:
   - Indicadores de telemetria (`TRACKING`, `TOF / DEPTH ON`, contagem de pontos da nuvem).
-  - Ret�culo din�mico de mira central com feedback crom�tico de superf�cie.
-  - Painel de leitura de dist�ncia com exibi��o de incerteza m�trica ($\pm\sigma$).
-- [x] Registro do `ArCoreFrameProcessor` e do `MeasurementViewModel` no m�dulo Koin (`AppModule.kt`).
-- [x] Integra��o da `MeasurementScreen` na `MainActivity`.
-- [x] Valida��o completa de testes unit�rios na JVM e compila��o bem-sucedida do APK de Debug (`./gradlew assembleDebug`).
+  - Retículo dinâmico de mira central com feedback cromático de superfície.
+  - Painel de leitura de distância com exibição de incerteza métrica ($\pm\sigma$).
+- [x] Registro do `ArCoreFrameProcessor` e do `MeasurementViewModel` no módulo Koin (`AppModule.kt`).
+- [x] Integração da `MeasurementScreen` na `MainActivity`.
+- [x] Validação completa de testes unitários na JVM e compilação bem-sucedida do APK de Debug (`./gradlew assembleDebug`).
 
-### ?? Decis�es de Arquitetura (ADR)
+### 🏛️ Decisões de Arquitetura (ADR)
 
-- **ADR-007: Filtragem e Descarte de Ru�do em Buffers Brutos (PointCloud)**
-  - **Contexto:** Sensores �pticos e de tempo de voo (ToF) geram dispers�o de dados e pontos esp�rios em superf�cies reflexivas ou de baixa ilumina��o.
-  - **Decis�o:** O `ArCoreFrameProcessor` aplica um limiar de confian�a configur�vel ($\ge 30\%$) diretamente na leitura do `FloatBuffer`, descartando artefatos antes de criar inst�ncias imut�veis de `Point3D` no dom�nio.
+- **ADR-007: Filtragem e Descarte de Ruído em Buffers Brutos (PointCloud)**
+  - **Contexto:** Sensores ópticos e de tempo de voo (ToF) geram dispersão de dados e pontos espírios em superfícies reflexivas ou de baixa iluminação.
+  - **Decisão:** O `ArCoreFrameProcessor` aplica um limiar de confiança configurável ($\ge 30\%$) diretamente na leitura do `FloatBuffer`, descartando artefatos antes de criar instâncias imutáveis de `Point3D` no domínio.
 - **ADR-008: Unidirectional Data Flow (UDF) com StateFlow no HUD de Metrologia**
-  - **Contexto:** A interface gr�fica precisa renderizar dados de alta frequ�ncia da c�mera ao mesmo tempo em que reage �s intera��es pontuais do usu�rio (ancoragem do Ponto A e Ponto B).
-  - **Decis�o:** Centraliza��o de todo o estado em `MeasurementUiState` imut�vel, exposto via `StateFlow` pelo `MeasurementViewModel`, garantindo que a UI apenas observe e emita eventos de clique sem conter l�gica de neg�cio.
+  - **Contexto:** A interface gráfica precisa renderizar dados de alta frequência da câmera ao mesmo tempo em que reage às interações pontuais do usuário (ancoragem do Ponto A e Ponto B).
+  - **Decisão:** Centralização de todo o estado em `MeasurementUiState` imutável, exposto via `StateFlow` pelo `MeasurementViewModel`, garantindo que a UI apenas observe e emita eventos de clique sem conter lógica de negócio.
 
 ---
 
-## ? [Dia 03] - 2026-08-24: Contrato de Reposit�rio de Sensores e Telemetria Reativa
+## 📡 [Dia 03] - 2026-08-24: Contrato de Repositório de Sensores e Telemetria Reativa
 
-### ? Objetivos Conclu�dos
+### 🎯 Objetivos Concluídos
 
-- [x] Cria��o dos modelos de telemetria espacial (`TrackingStatus`, `SpatialFrameData`).
-- [x] Defini��o do contrato de reposit�rio `SpatialSensorRepository` na camada `domain`.
-- [x] Implementa��o de `SpatialSensorRepositoryImpl` com `StateFlow` na camada `data`.
-- [x] Inje��o de depend�ncia via Koin como `Single`.
-- [x] Testes unit�rios do reposit�rio garantindo reatividade e integridade de estado.
-- [x] Configura��o da pipeline de integra��o cont�nua (CI) com GitHub Actions (`.github/workflows/android.yml`).
+- [x] Criação dos modelos de telemetria espacial (`TrackingStatus`, `SpatialFrameData`).
+- [x] Definição do contrato de repositório `SpatialSensorRepository` na camada `domain`.
+- [x] Implementação de `SpatialSensorRepositoryImpl` com `StateFlow` na camada `data`.
+- [x] Injeção de dependência via Koin como `Single`.
+- [x] Testes unitários do repositório garantindo reatividade e integridade de estado.
+- [x] Configuração da pipeline de integração contínua (CI) com GitHub Actions (`.github/workflows/android.yml`).
 
-### ?? Decis�es de Arquitetura (ADR)
+### 🏛️ Decisões de Arquitetura (ADR)
 
-- **ADR-005: Desacoplamento do Pipeline de Sensores via Reposit�rio Reativo**
-  - **Contexto:** O hardware emite frames espaciais em 30 a 60 FPS. A camada de dom�nio n�o deve ser bloqueada pela taxa de quadros do sensor.
-  - **Decis�o:** Uso de `StateFlow<SpatialFrameData>` com atualiza��es at�micas (`.update { ... }`).
-- **ADR-006: Abstra��o de Hit-Testing e Raycasting**
-  - **Contexto:** Proje��o de coordenadas 2D de tela para coordenadas f�sicas 3D ($X, Y, Z$).
-  - **Decis�o:** O reposit�rio exp�e o m�todo `performHitTest(x, y)` delegando a interse��o geom�trica para a nuvem de pontos ou mapa de profundidade denso.
-
----
-
-## ? [Dia 02] - 2026-08-23: Dom�nio Matem�tico Puro e Modelagem F�sica
-
-### ? Objetivos Conclu�dos
-
-- [x] Cria��o das entidades imut�veis: `Point3D`, `BoundingBox3D`, `DistanceMeasurement`, `MassEstimate`.
-- [x] Implementa��o dos casos de uso: `CalculateDistanceUseCase` e `EstimateSpatialDimensionsUseCase`.
-- [x] Implementa��o da propaga��o din�mica de incerteza metrol�gica ($\pm\sigma$).
-- [x] Cobertura de 100% em testes unit�rios com JUnit 4 e Google Truth na JVM.
-
-### ?? Decis�es de Arquitetura (ADR)
-
-- **ADR-003: Isolamento do Dom�nio Matem�tico em Kotlin Puro**
-  - **Decis�o:** Zero depend�ncias do Android SDK na camada `domain` para garantir portabilidade e execu��o instant�nea de testes unit�rios.
-- **ADR-004: Incerteza Din�mica como Entidade de Primeira Classe**
-  - **Decis�o:** Toda medi��o f�sica carrega seu desvio padr�o de erro intr�nseco baseado no modelo f�sico do sensor.
+- **ADR-005: Desacoplamento do Pipeline de Sensores via Repositório Reativo**
+  - **Contexto:** O hardware emite frames espaciais em 30 a 60 FPS. A camada de domínio não deve ser bloqueada pela taxa de quadros do sensor.
+  - **Decisão:** Uso de `StateFlow<SpatialFrameData>` com atualizações atômicas (`.update { ... }`).
+- **ADR-006: Abstração de Hit-Testing e Raycasting**
+  - **Contexto:** Projeção de coordenadas 2D de tela para coordenadas físicas 3D ($X, Y, Z$).
+  - **Decisão:** O repositório expõe o método `performHitTest(x, y)` delegando a interseção geométrica para a nuvem de pontos ou mapa de profundidade denso.
 
 ---
 
-## ? [Dia 01] - 2026-08-22: Funda��o, Setup e Governan�a
+## 🧮 [Dia 02] - 2026-08-23: Domínio Matemático Puro e Modelagem Física
 
-### ? Objetivos Conclu�dos
+### 🎯 Objetivos Concluídos
 
-- [x] Configura��o do projeto com Kotlin 2.x, Jetpack Compose (Material 3), Gradle Kotlin DSL e Version Catalogs (`libs.versions.toml`).
-- [x] Estrutura��o da Clean Architecture (`domain`, `data`, `presentation`).
-- [x] Inje��o de depend�ncia com Koin.
-- [x] Publica��o do reposit�rio no GitHub com licen�a Apache 2.0.
+- [x] Criação das entidades imutáveis: `Point3D`, `BoundingBox3D`, `DistanceMeasurement`, `MassEstimate`.
+- [x] Implementação dos casos de uso: `CalculateDistanceUseCase` e `EstimateSpatialDimensionsUseCase`.
+- [x] Implementação da propagação dinâmica de incerteza metrológica ($\pm\sigma$).
+- [x] Cobertura de 100% em testes unitários com JUnit 4 e Google Truth na JVM.
 
-### ?? Decis�es de Arquitetura (ADR)
+### 🏛️ Decisões de Arquitetura (ADR)
 
-- **ADR-001: Ado��o do Koin em vez de Hilt/Dagger**
-  - **Decis�o:** Inje��o de depend�ncia 100% Kotlin puro sem gera��o pesada de c�digo ou problemas com novas vers�es do compilador K2.
-- **ADR-002: Licenciamento Apache 2.0 e Estrat�gia Open Core**
-  - **Decis�o:** N�cleo aberto para autoridade t�cnica e portf�lio p�blico, com suporte a extens�es propriet�rias via contratos de plugin.
+- **ADR-003: Isolamento do Domínio Matemático em Kotlin Puro**
+  - **Decisão:** Zero dependências do Android SDK na camada `domain` para garantir portabilidade e execução instantânea de testes unitários.
+- **ADR-004: Incerteza Dinâmica como Entidade de Primeira Classe**
+  - **Decisão:** Toda medição física carrega seu desvio padrão de erro intrínseco baseado no modelo físico do sensor.
 
 ---
 
-## Próximos passos definidos para o Dia 14
+## 🏁 [Dia 01] - 2026-08-22: Fundação, Setup e Governança
 
-- [ ] Apresentar no HUD a fonte das âncoras da dimensão atual.
-- [ ] Exibir aviso visual quando uma medição utilizar `INSTANT_PLACEMENT`.
-- [ ] Definir uma política explícita para confirmação de resultados aproximados.
-- [ ] Preservar a procedência das âncoras junto às dimensões já confirmadas.
-- [ ] Preparar a procedência para futura persistência e exportação de relatórios.
-- [ ] Repetir a validação física comparando posicionamentos convencionais e aproximados.
-- [ ] Executar novamente testes unitários, Android Lint e montagem do APK após a integração visual.
+### 🎯 Objetivos Concluídos
+
+- [x] Configuração do projeto com Kotlin 2.x, Jetpack Compose (Material 3), Gradle Kotlin DSL e Version Catalogs (`libs.versions.toml`).
+- [x] Estruturação da Clean Architecture (`domain`, `data`, `presentation`).
+- [x] Injeção de dependência com Koin.
+- [x] Publicação do repositório no GitHub com licença Apache 2.0.
+
+### 🏛️ Decisões de Arquitetura (ADR)
+
+- **ADR-001: Adoção do Koin em vez de Hilt/Dagger**
+  - **Decisão:** Injeção de dependência 100% Kotlin puro sem geração pesada de código ou problemas com novas versões do compilador K2.
+- **ADR-002: Licenciamento Apache 2.0 e Estratégia Open Core**
+  - **Decisão:** Núcleo aberto para autoridade técnica e portfólio público, com suporte a extensões proprietárias via contratos de plugin.
+
+---
+
+## 🔮 Próximos Passos Definidos para o Dia 15
+
+- [ ] Preservar a procedência das âncoras junto a cada eixo depois da confirmação da dimensão.
+- [ ] Modelar a qualidade da medição confirmada sem acoplar o domínio às classes do ARCore.
+- [ ] Definir uma política explícita para aceitar, repetir ou sinalizar dimensões aproximadas.
+- [ ] Preparar dimensões, incertezas e procedência para futura persistência e exportação.
+- [ ] Validar o workflow automatizado com a próxima tag de pré-release.
+- [ ] Continuar observando as mensagens nativas de `ComputeDisparity` em diferentes aparelhos e versões do Google Play Services for AR.
+- [ ] Repetir testes físicos comparando medidas convencionais e aproximadas contra objetos de dimensões conhecidas.
