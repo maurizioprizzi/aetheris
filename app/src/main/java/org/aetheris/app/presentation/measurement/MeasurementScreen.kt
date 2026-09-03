@@ -45,6 +45,7 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import kotlinx.coroutines.launch
 import org.aetheris.app.data.arcore.ArCoreSessionManager
+import org.aetheris.app.domain.model.AnchorPlacementSource
 import org.aetheris.app.domain.model.DimensionAxis
 import org.aetheris.app.domain.model.DistanceMeasurement
 import org.aetheris.app.domain.model.MassEstimate
@@ -101,7 +102,7 @@ fun MeasurementScreen(
             )
 
             /*
-             * O badge utiliza a mesma área da câmera para
+             * O badge utiliza a mesma �rea da c�mera para
              * manter as coordenadas projetadas alinhadas.
              */
             FloatingMeasurementBadge(
@@ -132,6 +133,8 @@ fun MeasurementScreen(
             )
 
             TargetReticle(
+                isTracking =
+                    uiState.isTracking,
                 isTargetingSurface =
                     uiState.isTargetingSurface,
                 modifier = Modifier.align(
@@ -221,13 +224,14 @@ private fun MeasurementTelemetryHud(
 
 @Composable
 private fun TargetReticle(
+    isTracking: Boolean,
     isTargetingSurface: Boolean,
     modifier: Modifier = Modifier
 ) {
-    val color = if (isTargetingSurface) {
-        SuccessColor
-    } else {
-        ErrorColor
+    val color = when {
+        !isTracking -> ErrorColor
+        isTargetingSurface -> SuccessColor
+        else -> ApproximatePlacementColor
     }
 
     Box(
@@ -305,6 +309,16 @@ private fun MeasurementControlPanel(
                 currentAxis =
                     uiState.currentDimensionAxis
             )
+
+            if (uiState.currentDimensionAxis != null) {
+                Spacer(
+                    modifier = Modifier.height(12.dp)
+                )
+
+                PlacementProvenanceStatus(
+                    uiState = uiState
+                )
+            }
 
             Spacer(
                 modifier = Modifier.height(16.dp)
@@ -502,8 +516,8 @@ private fun DimensionAxisBadge(
         append(axis.shortLabel())
 
         when {
-            isMeasured -> append(" ✓")
-            isCurrent -> append(" •")
+            isMeasured -> append(" ?")
+            isCurrent -> append(" ?")
         }
     }
 
@@ -528,6 +542,198 @@ private fun DimensionAxisBadge(
     }
 }
 
+/**
+ * Apresenta a qualidade do posicionamento disponível sob a
+ * mira e a procedência das âncoras da dimensão atual.
+ *
+ * A interface apenas comunica a natureza aproximada do
+ * Instant Placement. A confirmação da medição permanece
+ * disponível para o usuário.
+ */
+@Composable
+private fun PlacementProvenanceStatus(
+    uiState: MeasurementUiState
+) {
+    val availabilityPresentation =
+        when {
+            !uiState.isTracking -> {
+                StatusPresentation(
+                    color = ErrorColor,
+                    label = "POSICIONAMENTO INDISPONÍVEL"
+                )
+            }
+
+            uiState.hasConfirmedPlacementSurface -> {
+                StatusPresentation(
+                    color = SuccessColor,
+                    label = "SUPERFÍCIE CONVENCIONAL"
+                )
+            }
+
+            else -> {
+                StatusPresentation(
+                    color = ApproximatePlacementColor,
+                    label = "FALLBACK APROXIMADO DISPONÍVEL"
+                )
+            }
+        }
+
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        color = availabilityPresentation.color
+            .copy(alpha = 0.22f),
+        shape = RoundedCornerShape(8.dp)
+    ) {
+        Text(
+            text = availabilityPresentation.label,
+            modifier = Modifier.padding(
+                horizontal = 10.dp,
+                vertical = 7.dp
+            ),
+            fontSize = 11.sp,
+            fontFamily = FontFamily.Monospace,
+            fontWeight = FontWeight.Bold,
+            color = availabilityPresentation.color,
+            textAlign = TextAlign.Center,
+            letterSpacing = 0.5.sp
+        )
+    }
+
+    if (uiState.anchorCount > 0) {
+        Spacer(
+            modifier = Modifier.height(8.dp)
+        )
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement =
+                Arrangement.spacedBy(8.dp)
+        ) {
+            AnchorSourceBadge(
+                pointLabel = "PONTO A",
+                hasPoint = uiState.hasStartPoint,
+                source = uiState.selectedStartSource,
+                modifier = Modifier.weight(1f)
+            )
+
+            AnchorSourceBadge(
+                pointLabel = "PONTO B",
+                hasPoint = uiState.hasEndPoint,
+                source = uiState.selectedEndSource,
+                modifier = Modifier.weight(1f)
+            )
+        }
+    }
+
+    if (uiState.shouldShowApproximatePlacementWarning) {
+        Spacer(
+            modifier = Modifier.height(8.dp)
+        )
+
+        ApproximatePlacementWarning()
+    }
+}
+
+@Composable
+private fun AnchorSourceBadge(
+    pointLabel: String,
+    hasPoint: Boolean,
+    source: AnchorPlacementSource?,
+    modifier: Modifier = Modifier
+) {
+    val sourceColor = when {
+        source?.isApproximate == true ->
+            ApproximatePlacementColor
+
+        source?.isConventional == true ->
+            SuccessColor
+
+        else ->
+            InactiveColor
+    }
+
+    val sourceLabel = when {
+        !hasPoint -> "PENDENTE"
+        source == null -> "ORIGEM PENDENTE"
+        else -> source.displayName()
+    }
+
+    Surface(
+        modifier = modifier,
+        color = sourceColor.copy(alpha = 0.24f),
+        shape = RoundedCornerShape(8.dp)
+    ) {
+        Column(
+            modifier = Modifier.padding(
+                horizontal = 8.dp,
+                vertical = 8.dp
+            ),
+            horizontalAlignment =
+                Alignment.CenterHorizontally
+        ) {
+            Text(
+                text = pointLabel,
+                fontSize = 10.sp,
+                fontFamily = FontFamily.Monospace,
+                fontWeight = FontWeight.Bold,
+                color = SecondaryTextColor
+            )
+
+            Spacer(
+                modifier = Modifier.height(2.dp)
+            )
+
+            Text(
+                text = sourceLabel,
+                fontSize = 10.sp,
+                fontFamily = FontFamily.Monospace,
+                fontWeight = FontWeight.Bold,
+                color = sourceColor,
+                textAlign = TextAlign.Center,
+                maxLines = 1
+            )
+        }
+    }
+}
+
+@Composable
+private fun ApproximatePlacementWarning() {
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        color = ApproximateWarningBackgroundColor,
+        shape = RoundedCornerShape(8.dp)
+    ) {
+        Column(
+            modifier = Modifier.padding(12.dp),
+            horizontalAlignment =
+                Alignment.CenterHorizontally
+        ) {
+            Text(
+                text = "MEDIÇÃO APROXIMADA",
+                fontSize = 11.sp,
+                fontFamily = FontFamily.Monospace,
+                fontWeight = FontWeight.Bold,
+                color = ApproximatePlacementColor,
+                letterSpacing = 0.8.sp
+            )
+
+            Spacer(
+                modifier = Modifier.height(4.dp)
+            )
+
+            Text(
+                text = "Um ou mais pontos usam Instant Placement. " +
+                        "A posição pode ser refinada conforme o " +
+                        "ARCore reconhece o ambiente.",
+                fontSize = 11.sp,
+                color = PrimaryTextColor,
+                textAlign = TextAlign.Center,
+                lineHeight = 16.sp
+            )
+        }
+    }
+}
+
 @Composable
 private fun MeasurementResult(
     measurement: DistanceMeasurement,
@@ -537,7 +743,7 @@ private fun MeasurementResult(
 
     Text(
         text = axis?.displayName()
-            ?: "DIMENSÃO",
+            ?: "DIMENS�O",
         fontSize = 12.sp,
         fontWeight = FontWeight.Bold,
         fontFamily = FontFamily.Monospace,
@@ -574,7 +780,7 @@ private fun MeasurementResult(
     )
 
     Text(
-        text = "Confirme para salvar esta dimensão",
+        text = "Confirme para salvar esta dimens�o",
         fontSize = 13.sp,
         color = PrimaryTextColor,
         textAlign = TextAlign.Center
@@ -713,8 +919,8 @@ private fun MassEstimateResult(
             )
 
             Text(
-                text = "Estimativa para objeto sólido e homogêneo. " +
-                        "Não equivale a uma pesagem em balança.",
+                text = "Estimativa para objeto s�lido e homog�neo. " +
+                        "N�o equivale a uma pesagem em balan�a.",
                 fontSize = 11.sp,
                 color = SecondaryTextColor,
                 textAlign = TextAlign.Center
@@ -775,7 +981,7 @@ private fun DimensionSummaryRow(
         Text(
             text = measurement
                 ?.formattedValueOnly(locale)
-                ?: "—",
+                ?: "?",
             fontSize = 12.sp,
             fontWeight = FontWeight.Bold,
             fontFamily = FontFamily.Monospace,
@@ -796,7 +1002,7 @@ private fun MeasurementInstruction(
     val dimensionName =
         currentAxis?.displayName()?.lowercase(
             Locale.getDefault()
-        ) ?: "dimensão"
+        ) ?: "dimens�o"
 
     val instruction = when {
         hasCompleteDimensions ->
@@ -807,22 +1013,31 @@ private fun MeasurementInstruction(
                 status = trackingStatus
             )
 
-        !isTargetingSurface ->
-            "Aponte a mira para uma superfície detectada"
+        !hasStartPoint -> {
+            if (isTargetingSurface) {
+                "Fixe o ponto A da $dimensionName"
+            } else {
+                "Fixe o ponto A da $dimensionName " +
+                        "com posicionamento aproximado"
+            }
+        }
 
-        !hasStartPoint ->
-            "Fixe o ponto A da $dimensionName"
-
-        !hasEndPoint ->
-            "Fixe o ponto B da $dimensionName"
+        !hasEndPoint -> {
+            if (isTargetingSurface) {
+                "Fixe o ponto B da $dimensionName"
+            } else {
+                "Fixe o ponto B da $dimensionName " +
+                        "com posicionamento aproximado"
+            }
+        }
 
         else ->
-            "Confirme a medição da $dimensionName"
+            "Confirme a medi��o da $dimensionName"
     }
 
     Text(
         text = currentAxis?.displayName()
-            ?: "MEDIÇÃO CONCLUÍDA",
+            ?: "MEDI��O CONCLU�DA",
         fontSize = 12.sp,
         fontWeight = FontWeight.Bold,
         fontFamily = FontFamily.Monospace,
@@ -864,7 +1079,7 @@ private fun TrackingStatusBadge(
         TrackingStatus.EXCESSIVE_MOTION -> {
             StatusPresentation(
                 color = WarningColor,
-                label = "MOVIMENTO RÁPIDO"
+                label = "MOVIMENTO R�PIDO"
             )
         }
 
@@ -885,7 +1100,7 @@ private fun TrackingStatusBadge(
         TrackingStatus.CAMERA_UNAVAILABLE -> {
             StatusPresentation(
                 color = ErrorColor,
-                label = "CÂMERA INDISPONÍVEL"
+                label = "C�MERA INDISPON�VEL"
             )
         }
 
@@ -899,7 +1114,7 @@ private fun TrackingStatusBadge(
         TrackingStatus.UNAVAILABLE -> {
             StatusPresentation(
                 color = ErrorColor,
-                label = "INDISPONÍVEL"
+                label = "INDISPON�VEL"
             )
         }
     }
@@ -955,7 +1170,7 @@ private fun primaryButtonLabel(
 ): String {
     if (uiState.volumeMeasurement != null) {
         return if (uiState.massEstimate != null) {
-            "Estimativa concluída"
+            "Estimativa conclu�da"
         } else {
             "Selecione o material"
         }
@@ -965,7 +1180,7 @@ private fun primaryButtonLabel(
         uiState.currentDimensionAxis
             ?.displayName()
             ?.lowercase(Locale.getDefault())
-            ?: "dimensão"
+            ?: "dimens�o"
 
     return when {
         uiState.isAnchorPlacementInProgress ->
@@ -974,14 +1189,24 @@ private fun primaryButtonLabel(
         uiState.canConfirmCurrentDimension ->
             "Confirmar $axisName"
 
-        !uiState.hasStartPoint ->
-            "Fixar ponto A"
+        !uiState.hasStartPoint -> {
+            if (uiState.requiresApproximatePlacement) {
+                "Fixar A (aprox.)"
+            } else {
+                "Fixar ponto A"
+            }
+        }
 
-        !uiState.hasEndPoint ->
-            "Fixar ponto B"
+        !uiState.hasEndPoint -> {
+            if (uiState.requiresApproximatePlacement) {
+                "Fixar B (aprox.)"
+            } else {
+                "Fixar ponto B"
+            }
+        }
 
         else ->
-            "Aguardando medição"
+            "Aguardando medi��o"
     }
 }
 
@@ -992,13 +1217,13 @@ private fun distanceUncertaintyText(
     return if (measurement.meters < 1f) {
         String.format(
             locale,
-            "±%.1f cm",
+            "�%.1f cm",
             measurement.uncertaintyCentimeters
         )
     } else {
         String.format(
             locale,
-            "±%.3f m",
+            "�%.3f m",
             measurement.uncertaintyMeters
         )
     }
@@ -1011,13 +1236,13 @@ private fun volumeUncertaintyText(
     return if (volume.cubicMeters < 1f) {
         String.format(
             locale,
-            "±%.1f L",
+            "�%.1f L",
             volume.uncertaintyLiters
         )
     } else {
         String.format(
             locale,
-            "±%.3f m³",
+            "�%.3f m�",
             volume.uncertaintyCubicMeters
         )
     }
@@ -1030,13 +1255,13 @@ private fun massUncertaintyText(
     return if (massEstimate.kilograms < 1f) {
         String.format(
             locale,
-            "±%.1f g",
+            "�%.1f g",
             massEstimate.uncertaintyGrams
         )
     } else {
         String.format(
             locale,
-            "±%.2f kg",
+            "�%.2f kg",
             massEstimate.confidenceIntervalKg
         )
     }
@@ -1058,6 +1283,22 @@ private fun DimensionAxis.shortLabel(): String {
     }
 }
 
+private fun AnchorPlacementSource.displayName(): String {
+    return when (this) {
+        AnchorPlacementSource.PLANE ->
+            "PLANO"
+
+        AnchorPlacementSource.FEATURE_POINT ->
+            "PONTO VISUAL"
+
+        AnchorPlacementSource.DEPTH_POINT ->
+            "PROFUNDIDADE"
+
+        AnchorPlacementSource.INSTANT_PLACEMENT ->
+            "INSTANTÂNEO"
+    }
+}
+
 private fun trackingInstruction(
     status: TrackingStatus
 ): String {
@@ -1069,19 +1310,19 @@ private fun trackingInstruction(
             "Movimente o aparelho mais devagar"
 
         TrackingStatus.INSUFFICIENT_FEATURES ->
-            "Aponte para uma superfície com mais detalhes"
+            "Aponte para uma superf�cie com mais detalhes"
 
         TrackingStatus.INSUFFICIENT_LIGHT ->
-            "Melhore a iluminação do ambiente"
+            "Melhore a ilumina��o do ambiente"
 
         TrackingStatus.CAMERA_UNAVAILABLE ->
-            "A câmera está indisponível"
+            "A c�mera est� indispon�vel"
 
         TrackingStatus.PAUSED ->
             "Rastreamento pausado"
 
         TrackingStatus.UNAVAILABLE ->
-            "Rastreamento indisponível"
+            "Rastreamento indispon�vel"
 
         TrackingStatus.TRACKING ->
             ""
@@ -1113,6 +1354,12 @@ private val SuccessColor =
 
 private val WarningColor =
     Color(0xFF9E6A03)
+
+private val ApproximatePlacementColor =
+    Color(0xFFD29922)
+
+private val ApproximateWarningBackgroundColor =
+    Color(0xFF332A00)
 
 private val ErrorColor =
     Color(0xFFDA3633)
