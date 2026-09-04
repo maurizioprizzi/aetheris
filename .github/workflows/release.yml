@@ -32,6 +32,43 @@ jobs:
       - name: Grant execute permission for Gradle wrapper
         run: chmod +x gradlew
 
+      - name: Validate tag against application version
+        shell: bash
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+
+          tag_version="${RELEASE_TAG#v}"
+
+          mapfile -t app_versions < <(
+            sed -nE \
+              's/^[[:space:]]*versionName[[:space:]]*=[[:space:]]*"([^"]+)".*/\1/p' \
+              app/build.gradle.kts
+          )
+
+          if (( ${#app_versions[@]} != 1 )); then
+            echo "::error title=Invalid application version::Expected exactly one versionName in app/build.gradle.kts, but found ${#app_versions[@]}."
+            exit 1
+          fi
+
+          app_version="${app_versions[0]}"
+
+          {
+            echo "### Release version validation"
+            echo
+            echo "- Tag: \`${RELEASE_TAG}\`"
+            echo "- Expected version: \`${tag_version}\`"
+            echo "- Application version: \`${app_version}\`"
+          } >> "${GITHUB_STEP_SUMMARY}"
+
+          if [[ "${tag_version}" != "${app_version}" ]]; then
+            echo "::error title=Release version mismatch::Tag ${RELEASE_TAG} requires versionName ${tag_version}, but app/build.gradle.kts declares ${app_version}."
+            exit 1
+          fi
+
+          echo "Version validation passed: ${RELEASE_TAG} matches versionName ${app_version}."
+
       - name: Validate and build Debug APK
         run: >-
           ./gradlew clean testDebugUnitTest lintDebug assembleDebug
