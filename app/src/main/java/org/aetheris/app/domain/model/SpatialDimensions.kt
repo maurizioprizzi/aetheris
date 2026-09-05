@@ -4,8 +4,12 @@ package org.aetheris.app.domain.model
  * Conjunto imutável das três dimensões espaciais
  * de uma pessoa ou objeto.
  *
- * Cada dimensão utiliza [DistanceMeasurement] para
- * preservar o valor medido e sua incerteza.
+ * Cada dimensão utiliza [DistanceMeasurement] para preservar
+ * o valor medido, sua incerteza e o instante de captura.
+ *
+ * A procedência espacial pode ser associada gradualmente por
+ * meio de [withDimensionMeasurement]. Medições legadas continuam
+ * válidas e são representadas sem fontes de posicionamento.
  *
  * As propriedades podem ser nulas enquanto a sessão
  * de medição ainda estiver incompleta.
@@ -13,7 +17,10 @@ package org.aetheris.app.domain.model
 data class SpatialDimensions(
     val width: DistanceMeasurement? = null,
     val height: DistanceMeasurement? = null,
-    val depth: DistanceMeasurement? = null
+    val depth: DistanceMeasurement? = null,
+    private val provenanceByAxis:
+    Map<DimensionAxis, DimensionMeasurement> =
+        emptyMap()
 ) {
 
     /**
@@ -56,6 +63,76 @@ data class SpatialDimensions(
      */
     val nextPendingAxis: DimensionAxis?
         get() = pendingAxes.firstOrNull()
+
+    /**
+     * Eixos medidos que possuem ao menos uma origem
+     * espacial conhecida.
+     */
+    val axesWithProvenance: List<DimensionAxis>
+        get() = DimensionAxis.entries.filter { axis ->
+            getDimensionMeasurement(axis)
+                ?.hasAnyProvenance == true
+        }
+
+    /**
+     * Quantidade de dimensões com alguma procedência conhecida.
+     */
+    val provenanceAxisCount: Int
+        get() = axesWithProvenance.size
+
+    /**
+     * Indica que ao menos uma dimensão possui procedência.
+     */
+    val hasAnyProvenance: Boolean
+        get() = provenanceAxisCount > 0
+
+    /**
+     * Indica que todos os eixos medidos possuem procedência
+     * completa para os pontos inicial e final.
+     *
+     * Um conjunto vazio não é considerado completamente
+     * documentado.
+     */
+    val hasCompleteProvenance: Boolean
+        get() = measuredAxisCount > 0 &&
+                DimensionAxis.entries
+                    .filter { axis ->
+                        this[axis] != null
+                    }
+                    .all { axis ->
+                        getDimensionMeasurement(axis)
+                            ?.hasCompleteProvenance == true
+                    }
+
+    /**
+     * Indica que pelo menos uma dimensão utilizou
+     * Instant Placement.
+     */
+    val usesApproximatePlacement: Boolean
+        get() = DimensionAxis.entries.any { axis ->
+            getDimensionMeasurement(axis)
+                ?.usesApproximatePlacement == true
+        }
+
+    /**
+     * Indica que pelo menos uma dimensão dependeu
+     * de dados da Depth API.
+     */
+    val usesDepth: Boolean
+        get() = DimensionAxis.entries.any { axis ->
+            getDimensionMeasurement(axis)
+                ?.usesDepth == true
+        }
+
+    /**
+     * Indica que pelo menos uma dimensão contém uma pose
+     * espacial que pode sofrer refinamento relevante.
+     */
+    val mayRefineOverTime: Boolean
+        get() = DimensionAxis.entries.any { axis ->
+            getDimensionMeasurement(axis)
+                ?.mayRefineOverTime == true
+        }
 
     /**
      * Volume central em metros cúbicos.
@@ -115,7 +192,7 @@ data class SpatialDimensions(
         }
 
     /**
-     * Retorna a medição correspondente ao eixo informado.
+     * Retorna a distância correspondente ao eixo informado.
      */
     operator fun get(
         axis: DimensionAxis
@@ -128,48 +205,136 @@ data class SpatialDimensions(
     }
 
     /**
-     * Retorna uma nova instância contendo a medição
-     * informada no eixo selecionado.
+     * Retorna a dimensão com sua procedência espacial.
      *
-     * A instância atual permanece inalterada.
+     * Medições criadas antes da introdução da procedência são
+     * adaptadas para [DimensionMeasurement] com fontes nulas.
+     *
+     * Uma entrada interna incompatível com a distância atual é
+     * ignorada defensivamente, evitando associação de procedência
+     * obsoleta após operações de cópia.
+     */
+    fun getDimensionMeasurement(
+        axis: DimensionAxis
+    ): DimensionMeasurement? {
+        val currentMeasurement =
+            this[axis] ?: return null
+
+        val measurementWithProvenance =
+            provenanceByAxis[axis]
+
+        if (
+            measurementWithProvenance?.measurement ==
+            currentMeasurement
+        ) {
+            return measurementWithProvenance
+        }
+
+        return DimensionMeasurement(
+            measurement = currentMeasurement
+        )
+    }
+
+    /**
+     * Retorna uma nova instância contendo uma distância sem
+     * procedência conhecida no eixo selecionado.
+     *
+     * Qualquer procedência anterior desse eixo é removida para
+     * impedir que fontes antigas sejam associadas ao novo valor.
      */
     fun withMeasurement(
         axis: DimensionAxis,
         measurement: DistanceMeasurement
     ): SpatialDimensions {
-        return when (axis) {
-            DimensionAxis.WIDTH -> {
-                copy(width = measurement)
-            }
-
-            DimensionAxis.HEIGHT -> {
-                copy(height = measurement)
-            }
-
-            DimensionAxis.DEPTH -> {
-                copy(depth = measurement)
-            }
-        }
+        return withStoredMeasurement(
+            axis = axis,
+            measurement = measurement,
+            updatedProvenance =
+                provenanceByAxis - axis
+        )
     }
 
     /**
-     * Retorna uma nova instância removendo
-     * a medição do eixo selecionado.
+     * Retorna uma nova instância contendo uma dimensão e as
+     * origens espaciais dos seus pontos inicial e final.
+     */
+    fun withDimensionMeasurement(
+        axis: DimensionAxis,
+        dimensionMeasurement: DimensionMeasurement
+    ): SpatialDimensions {
+        return withStoredMeasurement(
+            axis = axis,
+            measurement =
+                dimensionMeasurement.measurement,
+            updatedProvenance =
+                provenanceByAxis +
+                        (axis to dimensionMeasurement)
+        )
+    }
+
+    /**
+     * Retorna uma nova instância removendo a medição e a
+     * procedência espacial do eixo selecionado.
      */
     fun withoutMeasurement(
         axis: DimensionAxis
     ): SpatialDimensions {
         return when (axis) {
             DimensionAxis.WIDTH -> {
-                copy(width = null)
+                copy(
+                    width = null,
+                    provenanceByAxis =
+                        provenanceByAxis - axis
+                )
             }
 
             DimensionAxis.HEIGHT -> {
-                copy(height = null)
+                copy(
+                    height = null,
+                    provenanceByAxis =
+                        provenanceByAxis - axis
+                )
             }
 
             DimensionAxis.DEPTH -> {
-                copy(depth = null)
+                copy(
+                    depth = null,
+                    provenanceByAxis =
+                        provenanceByAxis - axis
+                )
+            }
+        }
+    }
+
+    private fun withStoredMeasurement(
+        axis: DimensionAxis,
+        measurement: DistanceMeasurement,
+        updatedProvenance:
+        Map<DimensionAxis, DimensionMeasurement>
+    ): SpatialDimensions {
+        return when (axis) {
+            DimensionAxis.WIDTH -> {
+                copy(
+                    width = measurement,
+                    provenanceByAxis =
+                        updatedProvenance
+                )
+            }
+
+            DimensionAxis.HEIGHT -> {
+                copy(
+                    height = measurement,
+                    provenanceByAxis =
+                        updatedProvenance
+                )
+            }
+
+            DimensionAxis.DEPTH -> {
+                copy(
+                    depth = measurement,
+                    provenanceByAxis =
+                        updatedProvenance
+                )
             }
         }
     }
