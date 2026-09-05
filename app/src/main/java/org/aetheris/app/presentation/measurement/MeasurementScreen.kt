@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
@@ -32,15 +33,24 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.layout.positionInRoot
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import kotlinx.coroutines.launch
@@ -61,6 +71,7 @@ import org.aetheris.app.presentation.permissions.CameraPermissionHandler
 import org.koin.androidx.compose.koinViewModel
 import org.koin.compose.koinInject
 import java.util.Locale
+import kotlin.math.roundToInt
 
 @Composable
 fun MeasurementScreen(
@@ -76,9 +87,69 @@ fun MeasurementScreen(
 
     val coroutineScope = rememberCoroutineScope()
 
+    var viewportHeightPx by remember {
+        mutableIntStateOf(0)
+    }
+
+    var controlPanelTopPx by remember {
+        mutableFloatStateOf(Float.NaN)
+    }
+
+    val density = LocalDensity.current
+
+    val reticleClearancePx = with(density) {
+        ReticlePanelClearance.toPx()
+    }
+
+    val reticleRadiusPx = with(density) {
+        TargetReticleSize.toPx() / 2f
+    }
+
+    val defaultReticleCenterYPx =
+        viewportHeightPx / 2f
+
+    val reticleCenterYPx =
+        if (
+            viewportHeightPx > 0 &&
+            controlPanelTopPx.isFinite()
+        ) {
+            minOf(
+                defaultReticleCenterYPx,
+                controlPanelTopPx -
+                        reticleClearancePx -
+                        reticleRadiusPx
+            ).coerceAtLeast(reticleRadiusPx)
+        } else {
+            defaultReticleCenterYPx
+        }
+
+    val reticleOffsetYPx =
+        reticleCenterYPx -
+                defaultReticleCenterYPx
+
+    LaunchedEffect(
+        viewportHeightPx,
+        reticleCenterYPx
+    ) {
+        if (viewportHeightPx <= 0) {
+            return@LaunchedEffect
+        }
+
+        viewModel.onTargetCoordinatesChanged(
+            normalizedX = CENTER_NORMALIZED_COORDINATE,
+            normalizedY =
+                (reticleCenterYPx / viewportHeightPx)
+                    .coerceIn(0f, 1f)
+        )
+    }
+
     CameraPermissionHandler {
         Box(
-            modifier = Modifier.fillMaxSize()
+            modifier = Modifier
+                .fillMaxSize()
+                .onSizeChanged { size ->
+                    viewportHeightPx = size.height
+                }
         ) {
             ArCameraFeed(
                 sessionManager = sessionManager,
@@ -137,9 +208,15 @@ fun MeasurementScreen(
                     uiState.isTracking,
                 isTargetingSurface =
                     uiState.isTargetingSurface,
-                modifier = Modifier.align(
-                    Alignment.Center
-                )
+                modifier = Modifier
+                    .align(Alignment.Center)
+                    .offset {
+                        IntOffset(
+                            x = 0,
+                            y = reticleOffsetYPx
+                                .roundToInt()
+                        )
+                    }
             )
 
             MeasurementControlPanel(
@@ -163,6 +240,14 @@ fun MeasurementScreen(
                         WindowInsets.safeDrawing
                     )
                     .padding(16.dp)
+                    .onGloballyPositioned { coordinates ->
+                        val updatedTop =
+                            coordinates.positionInRoot().y
+
+                        if (controlPanelTopPx != updatedTop) {
+                            controlPanelTopPx = updatedTop
+                        }
+                    }
             )
 
             SnackbarHost(
@@ -236,7 +321,7 @@ private fun TargetReticle(
 
     Box(
         modifier = modifier
-            .size(24.dp)
+            .size(TargetReticleSize)
             .border(
                 width = 2.dp,
                 color = color,
@@ -309,6 +394,16 @@ private fun MeasurementControlPanel(
                 currentAxis =
                     uiState.currentDimensionAxis
             )
+
+            if (uiState.measuredDimensionCount > 0) {
+                Spacer(
+                    modifier = Modifier.height(12.dp)
+                )
+
+                ConfirmedMeasurementProvenanceStatus(
+                    uiState = uiState
+                )
+            }
 
             if (uiState.currentDimensionAxis != null) {
                 Spacer(
@@ -631,6 +726,112 @@ private fun PlacementProvenanceStatus(
         )
 
         ApproximatePlacementWarning()
+    }
+}
+
+/**
+ * Resume a procedência acumulada das dimensões já confirmadas.
+ *
+ * Este bloco descreve o histórico utilizado para calcular o
+ * volume e a massa. Ele permanece separado da procedência das
+ * âncoras da dimensão que ainda está sendo capturada.
+ */
+@Composable
+private fun ConfirmedMeasurementProvenanceStatus(
+    uiState: MeasurementUiState
+) {
+    val presentation =
+        when {
+            uiState.hasApproximateConfirmedDimension -> {
+                ConfirmedProvenancePresentation(
+                    color = ApproximatePlacementColor,
+                    title = "RESULTADO COM POSICIONAMENTO APROXIMADO",
+                    description =
+                        "Ao menos um eixo confirmado usa " +
+                                "Instant Placement."
+                )
+            }
+
+            uiState.hasDepthBasedConfirmedDimension -> {
+                ConfirmedProvenancePresentation(
+                    color = DepthActiveColor,
+                    title = "RESULTADO COM PROFUNDIDADE",
+                    description =
+                        "Ao menos um eixo confirmado usa " +
+                                "dados da Depth API."
+                )
+            }
+
+            uiState
+                .hasCompleteConfirmedDimensionProvenance -> {
+                ConfirmedProvenancePresentation(
+                    color = SuccessColor,
+                    title = "PROCEDÊNCIA ESPACIAL COMPLETA",
+                    description =
+                        "As origens dos pontos confirmados " +
+                                "estão registradas."
+                )
+            }
+
+            uiState.hasConfirmedDimensionProvenance -> {
+                ConfirmedProvenancePresentation(
+                    color = WarningColor,
+                    title = "PROCEDÊNCIA ESPACIAL PARCIAL",
+                    description =
+                        "Nem todos os pontos confirmados possuem " +
+                                "origem registrada."
+                )
+            }
+
+            else -> {
+                ConfirmedProvenancePresentation(
+                    color = InactiveColor,
+                    title = "PROCEDÊNCIA NÃO REGISTRADA",
+                    description =
+                        "As dimensões confirmadas não possuem " +
+                                "origem espacial disponível."
+                )
+            }
+        }
+
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        color = presentation.color.copy(alpha = 0.22f),
+        shape = RoundedCornerShape(8.dp)
+    ) {
+        Column(
+            modifier = Modifier.padding(
+                horizontal = 10.dp,
+                vertical = 8.dp
+            ),
+            horizontalAlignment =
+                Alignment.CenterHorizontally
+        ) {
+            Text(
+                text = presentation.title,
+                fontSize = 10.sp,
+                fontFamily = FontFamily.Monospace,
+                fontWeight = FontWeight.Bold,
+                color = presentation.color,
+                textAlign = TextAlign.Center,
+                letterSpacing = 0.4.sp
+            )
+
+            Spacer(
+                modifier = Modifier.height(3.dp)
+            )
+
+            Text(
+                text =
+                    "${uiState.confirmedDimensionProvenanceCount}/" +
+                            "${uiState.measuredDimensionCount} eixos com " +
+                            "procedência. ${presentation.description}",
+                fontSize = 10.sp,
+                color = SecondaryTextColor,
+                textAlign = TextAlign.Center,
+                lineHeight = 14.sp
+            )
+        }
     }
 }
 
@@ -1334,8 +1535,23 @@ private data class StatusPresentation(
     val label: String
 )
 
+private data class ConfirmedProvenancePresentation(
+    val color: Color,
+    val title: String,
+    val description: String
+)
+
 private val MaximumControlPanelHeight =
     560.dp
+
+private val TargetReticleSize =
+    24.dp
+
+private val ReticlePanelClearance =
+    20.dp
+
+private const val CENTER_NORMALIZED_COORDINATE =
+    0.5f
 
 private val PanelColor =
     Color(0xFF161B22)

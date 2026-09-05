@@ -57,6 +57,15 @@ class MeasurementViewModelTest {
         var clearAnchorsCallCount: Int = 0
             private set
 
+        var lastCreateAnchorNormalizedX: Float? = null
+            private set
+
+        var lastCreateAnchorNormalizedY: Float? = null
+            private set
+
+        var lastCreateAnchorSlot: AnchorSlot? = null
+            private set
+
         fun updateAnchors(
             startPoint: Point3D?,
             startSource: AnchorPlacementSource? = null,
@@ -84,6 +93,10 @@ class MeasurementViewModelTest {
             normalizedY: Float,
             slot: AnchorSlot
         ): Point3D? {
+            lastCreateAnchorNormalizedX = normalizedX
+            lastCreateAnchorNormalizedY = normalizedY
+            lastCreateAnchorSlot = slot
+
             return null
         }
 
@@ -334,6 +347,80 @@ class MeasurementViewModelTest {
 
         assertThat(state.viewportHeightPx)
             .isEqualTo(1920)
+    }
+
+    @Test
+    fun `anchor placement uses viewport center by default`() {
+        advanceUntilIdle()
+
+        viewModel.onAnchorPointTapped()
+
+        advanceUntilIdle()
+
+        assertThat(
+            fakeRepository.lastCreateAnchorNormalizedX
+        ).isEqualTo(0.5f)
+
+        assertThat(
+            fakeRepository.lastCreateAnchorNormalizedY
+        ).isEqualTo(0.5f)
+
+        assertThat(
+            fakeRepository.lastCreateAnchorSlot
+        ).isEqualTo(AnchorSlot.START)
+    }
+
+    @Test
+    fun `anchor placement uses updated target coordinates`() {
+        advanceUntilIdle()
+
+        viewModel.onTargetCoordinatesChanged(
+            normalizedX = 0.5f,
+            normalizedY = 0.25f
+        )
+
+        viewModel.onAnchorPointTapped()
+
+        advanceUntilIdle()
+
+        assertThat(
+            fakeRepository.lastCreateAnchorNormalizedX
+        ).isEqualTo(0.5f)
+
+        assertThat(
+            fakeRepository.lastCreateAnchorNormalizedY
+        ).isEqualTo(0.25f)
+
+        assertThat(
+            fakeRepository.lastCreateAnchorSlot
+        ).isEqualTo(AnchorSlot.START)
+    }
+
+    @Test
+    fun `invalid target coordinates preserve previous valid target`() {
+        advanceUntilIdle()
+
+        viewModel.onTargetCoordinatesChanged(
+            normalizedX = 0.4f,
+            normalizedY = 0.3f
+        )
+
+        viewModel.onTargetCoordinatesChanged(
+            normalizedX = Float.NaN,
+            normalizedY = 1.5f
+        )
+
+        viewModel.onAnchorPointTapped()
+
+        advanceUntilIdle()
+
+        assertThat(
+            fakeRepository.lastCreateAnchorNormalizedX
+        ).isEqualTo(0.4f)
+
+        assertThat(
+            fakeRepository.lastCreateAnchorNormalizedY
+        ).isEqualTo(0.3f)
     }
 
     @Test

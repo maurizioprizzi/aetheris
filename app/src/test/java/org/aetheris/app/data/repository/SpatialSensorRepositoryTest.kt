@@ -20,6 +20,7 @@ import org.aetheris.app.domain.model.AnchorPlacementSource
 import org.aetheris.app.domain.model.AnchorSlot
 import org.aetheris.app.domain.model.Point3D
 import org.aetheris.app.domain.model.TrackingStatus
+import org.junit.Assert.assertThrows
 import org.junit.Before
 import org.junit.Test
 
@@ -93,6 +94,139 @@ class SpatialSensorRepositoryTest {
 
         assertThat(currentData.isDepthEnabled)
             .isTrue()
+    }
+
+    @Test
+    fun `surface probe uses viewport center by default`() {
+        every {
+            hitTestProcessor.hasValidSurfaceAt(
+                frame,
+                any(),
+                any()
+            )
+        } returns true
+
+        repository.onFrameUpdate(frame)
+
+        verify(exactly = 1) {
+            hitTestProcessor.hasValidSurfaceAt(
+                frame = frame,
+                xPx = 539.5f,
+                yPx = 959.5f
+            )
+        }
+    }
+
+    @Test
+    fun `surface probe uses dynamically updated target coordinates`() {
+        every {
+            hitTestProcessor.hasValidSurfaceAt(
+                frame,
+                any(),
+                any()
+            )
+        } returns true
+
+        repository.updateTargetCoordinates(
+            normalizedX = 0.25f,
+            normalizedY = 0.30f
+        )
+
+        repository.onFrameUpdate(frame)
+
+        verify(exactly = 1) {
+            hitTestProcessor.hasValidSurfaceAt(
+                frame = frame,
+                xPx = 269.75f,
+                yPx = 575.7f
+            )
+        }
+    }
+
+    @Test
+    fun `moving target resets throttled surface probe`() {
+        var currentNanoTime = 1_000L
+
+        repository = SpatialSensorRepositoryImpl(
+            frameProcessor = frameProcessor,
+            hitTestProcessor = hitTestProcessor,
+            isDepthEnabledProvider = { true },
+            surfaceProbeIntervalNanos =
+                1_000_000_000L,
+            nanoTimeProvider = {
+                currentNanoTime
+            }
+        )
+
+        repository.updateViewportSize(
+            widthPx = 1080,
+            heightPx = 1920
+        )
+
+        every {
+            hitTestProcessor.hasValidSurfaceAt(
+                frame,
+                any(),
+                any()
+            )
+        } returns true
+
+        repository.onFrameUpdate(frame)
+
+        currentNanoTime += 1L
+
+        repository.updateTargetCoordinates(
+            normalizedX = 0.5f,
+            normalizedY = 0.25f
+        )
+
+        repository.onFrameUpdate(frame)
+
+        verify(exactly = 1) {
+            hitTestProcessor.hasValidSurfaceAt(
+                frame = frame,
+                xPx = 539.5f,
+                yPx = 959.5f
+            )
+        }
+
+        verify(exactly = 1) {
+            hitTestProcessor.hasValidSurfaceAt(
+                frame = frame,
+                xPx = 539.5f,
+                yPx = 479.75f
+            )
+        }
+    }
+
+    @Test
+    fun `invalid target coordinates are rejected`() {
+        assertThrows(
+            IllegalArgumentException::class.java
+        ) {
+            repository.updateTargetCoordinates(
+                normalizedX = -0.01f,
+                normalizedY = 0.5f
+            )
+        }
+
+        assertThrows(
+            IllegalArgumentException::class.java
+        ) {
+            repository.updateTargetCoordinates(
+                normalizedX = 0.5f,
+                normalizedY = 1.01f
+            )
+        }
+
+        assertThrows(
+            IllegalArgumentException::class.java
+        ) {
+            repository.updateTargetCoordinates(
+                normalizedX = Float.NaN,
+                normalizedY = 0.5f
+            )
+        }
     }
 
     @Test

@@ -35,6 +35,12 @@ class MeasurementViewModel(
 
     private var anchorPlacementJob: Job? = null
 
+    private var targetNormalizedX: Float =
+        CENTER_NORMALIZED_COORDINATE
+
+    private var targetNormalizedY: Float =
+        CENTER_NORMALIZED_COORDINATE
+
     init {
         observeSpatialData()
     }
@@ -78,6 +84,43 @@ class MeasurementViewModel(
                 )
             }
         }
+    }
+
+    /**
+     * Atualiza a coordenada normalizada mais recente indicada pela mira.
+     *
+     * A mesma posição é utilizada pela sondagem contínua de
+     * superfícies e pelas solicitações de criação de âncora,
+     * preservando o alinhamento entre interface e ARCore.
+     */
+    fun onTargetCoordinatesChanged(
+        normalizedX: Float,
+        normalizedY: Float
+    ) {
+        if (
+            !areValidNormalizedCoordinates(
+                normalizedX = normalizedX,
+                normalizedY = normalizedY
+            )
+        ) {
+            return
+        }
+
+        if (
+            targetNormalizedX == normalizedX &&
+            targetNormalizedY == normalizedY
+        ) {
+            return
+        }
+
+        targetNormalizedX = normalizedX
+        targetNormalizedY = normalizedY
+
+        (spatialSensorRepository as? SpatialSensorRepositoryImpl)
+            ?.updateTargetCoordinates(
+                normalizedX = normalizedX,
+                normalizedY = normalizedY
+            )
     }
 
     /**
@@ -150,6 +193,12 @@ class MeasurementViewModel(
             return
         }
 
+        val requestNormalizedX =
+            targetNormalizedX
+
+        val requestNormalizedY =
+            targetNormalizedY
+
         _uiState.update { current ->
             current.copy(
                 isAnchorPlacementInProgress = true
@@ -161,9 +210,9 @@ class MeasurementViewModel(
                 try {
                     spatialSensorRepository.createAnchor(
                         normalizedX =
-                            CENTER_NORMALIZED_COORDINATE,
+                            requestNormalizedX,
                         normalizedY =
-                            CENTER_NORMALIZED_COORDINATE,
+                            requestNormalizedY,
                         slot = anchorSlot
                     )
                 } finally {
@@ -419,5 +468,17 @@ class MeasurementViewModel(
 
     private companion object {
         const val CENTER_NORMALIZED_COORDINATE = 0.5f
+
+        val NORMALIZED_COORDINATE_RANGE = 0f..1f
+    }
+
+    private fun areValidNormalizedCoordinates(
+        normalizedX: Float,
+        normalizedY: Float
+    ): Boolean {
+        return normalizedX.isFinite() &&
+                normalizedY.isFinite() &&
+                normalizedX in NORMALIZED_COORDINATE_RANGE &&
+                normalizedY in NORMALIZED_COORDINATE_RANGE
     }
 }

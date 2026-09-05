@@ -60,15 +60,27 @@ class SpatialSensorRepositoryImpl(
     private var viewportSize: ViewportSize? = null
 
     /**
+     * Coordenada normalizada mais recente indicada pela mira.
+     *
+     * A referência é substituída atomicamente pela thread da UI
+     * e lida pela thread de renderização durante a sondagem.
+     */
+    @Volatile
+    private var targetCoordinates =
+        NormalizedCoordinates.center()
+
+    /**
      * Cada slot mantém a âncora nativa junto da origem
      * espacial usada durante sua criação.
      */
     private var startAnchor: ActiveAnchor? = null
     private var endAnchor: ActiveAnchor? = null
 
+    @Volatile
     private var lastSurfaceProbeNanos: Long =
         NO_SURFACE_PROBE
 
+    @Volatile
     private var lastSurfaceDetected: Boolean = false
 
     /**
@@ -92,6 +104,41 @@ class SpatialSensorRepositoryImpl(
             heightPx = heightPx
         )
 
+        resetSurfaceProbe()
+    }
+
+    /**
+     * Atualiza a posição normalizada utilizada pela sondagem
+     * contínua de superfícies.
+     *
+     * Os mesmos valores serão posteriormente utilizados pelas
+     * solicitações explícitas de hit test e criação de âncora,
+     * mantendo a geometria do ARCore alinhada à mira visível.
+     */
+    fun updateTargetCoordinates(
+        normalizedX: Float,
+        normalizedY: Float
+    ) {
+        require(
+            areValidNormalizedCoordinates(
+                normalizedX = normalizedX,
+                normalizedY = normalizedY
+            )
+        ) {
+            "As coordenadas da mira devem estar entre zero e um."
+        }
+
+        val updatedCoordinates =
+            NormalizedCoordinates(
+                x = normalizedX,
+                y = normalizedY
+            )
+
+        if (targetCoordinates == updatedCoordinates) {
+            return
+        }
+
+        targetCoordinates = updatedCoordinates
         resetSurfaceProbe()
     }
 
@@ -133,19 +180,20 @@ class SpatialSensorRepositoryImpl(
             emptyList()
         }
 
-        val centerPixels =
+        val currentTarget =
+            targetCoordinates
+
+        val targetPixels =
             normalizedToPixels(
-                normalizedX =
-                    CENTER_NORMALIZED_COORDINATE,
-                normalizedY =
-                    CENTER_NORMALIZED_COORDINATE
+                normalizedX = currentTarget.x,
+                normalizedY = currentTarget.y
             )
 
         val isSurfaceDetected =
             resolveSurfaceDetection(
                 frame = frame,
                 isTracking = isTracking,
-                centerPixels = centerPixels
+                targetPixels = targetPixels
             )
 
         val anchorSnapshot =
@@ -283,6 +331,8 @@ class SpatialSensorRepositoryImpl(
         clearAnchors()
 
         viewportSize = null
+        targetCoordinates =
+            NormalizedCoordinates.center()
         resetSurfaceProbe()
 
         _spatialDataStream.update { current ->
@@ -485,9 +535,9 @@ class SpatialSensorRepositoryImpl(
     private fun resolveSurfaceDetection(
         frame: Frame,
         isTracking: Boolean,
-        centerPixels: PixelCoordinates?
+        targetPixels: PixelCoordinates?
     ): Boolean {
-        if (!isTracking || centerPixels == null) {
+        if (!isTracking || targetPixels == null) {
             resetSurfaceProbe()
             return false
         }
@@ -510,8 +560,8 @@ class SpatialSensorRepositoryImpl(
         lastSurfaceDetected =
             hitTestProcessor.hasValidSurfaceAt(
                 frame = frame,
-                xPx = centerPixels.x,
-                yPx = centerPixels.y
+                xPx = targetPixels.x,
+                yPx = targetPixels.y
             )
 
         return lastSurfaceDetected
@@ -885,6 +935,21 @@ class SpatialSensorRepositoryImpl(
         val x: Float,
         val y: Float
     )
+
+    private data class NormalizedCoordinates(
+        val x: Float,
+        val y: Float
+    ) {
+
+        companion object {
+            fun center(): NormalizedCoordinates {
+                return NormalizedCoordinates(
+                    x = CENTER_NORMALIZED_COORDINATE,
+                    y = CENTER_NORMALIZED_COORDINATE
+                )
+            }
+        }
+    }
 
     private data class AnchorSnapshot(
         val start: ResolvedAnchor,
