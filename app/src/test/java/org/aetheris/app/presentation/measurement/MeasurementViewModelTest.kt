@@ -388,7 +388,7 @@ class MeasurementViewModelTest {
     }
 
     @Test
-    fun `confirming dimension removes active anchor provenance`() {
+    fun `confirming dimension preserves provenance and clears active anchors`() {
         fakeRepository.updateAnchors(
             startPoint = Point3D.ORIGIN,
             startSource =
@@ -433,9 +433,101 @@ class MeasurementViewModelTest {
         assertThat(state.spatialDimensions.width)
             .isNotNull()
 
+        val confirmedWidth =
+            state.spatialDimensions
+                .getDimensionMeasurement(
+                    DimensionAxis.WIDTH
+                )
+
+        assertThat(confirmedWidth)
+            .isNotNull()
+
+        assertThat(confirmedWidth?.startSource)
+            .isEqualTo(
+                AnchorPlacementSource.PLANE
+            )
+
+        assertThat(confirmedWidth?.endSource)
+            .isEqualTo(
+                AnchorPlacementSource.FEATURE_POINT
+            )
+
+        assertThat(confirmedWidth?.hasCompleteProvenance)
+            .isTrue()
+
+        assertThat(
+            state.spatialDimensions
+                .hasCompleteProvenance
+        ).isTrue()
+
         assertThat(
             fakeRepository.clearAnchorsCallCount
         ).isEqualTo(1)
+    }
+
+    @Test
+    fun `confirming approximate dimension preserves instant placement warning`() {
+        fakeRepository.updateAnchors(
+            startPoint = Point3D.ORIGIN,
+            startSource =
+                AnchorPlacementSource.PLANE,
+            endPoint =
+                Point3D(
+                    x = 2f,
+                    y = 0f,
+                    z = 0f
+                ),
+            endSource =
+                AnchorPlacementSource.INSTANT_PLACEMENT
+        )
+
+        advanceUntilIdle()
+
+        viewModel.onConfirmCurrentDimension()
+
+        val state =
+            viewModel.uiState.value
+
+        val confirmedWidth =
+            state.spatialDimensions
+                .getDimensionMeasurement(
+                    DimensionAxis.WIDTH
+                )
+
+        assertThat(confirmedWidth)
+            .isNotNull()
+
+        assertThat(confirmedWidth?.startSource)
+            .isEqualTo(
+                AnchorPlacementSource.PLANE
+            )
+
+        assertThat(confirmedWidth?.endSource)
+            .isEqualTo(
+                AnchorPlacementSource.INSTANT_PLACEMENT
+            )
+
+        assertThat(confirmedWidth?.usesApproximatePlacement)
+            .isTrue()
+
+        assertThat(confirmedWidth?.mayRefineOverTime)
+            .isTrue()
+
+        assertThat(
+            state.spatialDimensions
+                .usesApproximatePlacement
+        ).isTrue()
+
+        assertThat(
+            state.spatialDimensions
+                .mayRefineOverTime
+        ).isTrue()
+
+        assertThat(state.selectedStartSource)
+            .isNull()
+
+        assertThat(state.selectedEndSource)
+            .isNull()
     }
 
     @Test
@@ -490,6 +582,21 @@ class MeasurementViewModelTest {
 
         assertThat(state.hasCompleteSpatialDimensions)
             .isTrue()
+
+        assertThat(
+            state.spatialDimensions
+                .provenanceAxisCount
+        ).isEqualTo(3)
+
+        assertThat(
+            state.spatialDimensions
+                .hasCompleteProvenance
+        ).isTrue()
+
+        assertThat(
+            state.spatialDimensions
+                .usesApproximatePlacement
+        ).isFalse()
 
         assertThat(state.volumeMeasurement)
             .isNotNull()

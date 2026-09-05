@@ -10,6 +10,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import org.aetheris.app.data.repository.SpatialSensorRepositoryImpl
+import org.aetheris.app.domain.model.DimensionMeasurement
 import org.aetheris.app.domain.model.MaterialDensity
 import org.aetheris.app.domain.model.SpatialDimensions
 import org.aetheris.app.domain.repository.SpatialSensorRepository
@@ -176,7 +177,8 @@ class MeasurementViewModel(
     }
 
     /**
-     * Confirma a distância atual como o valor do eixo ativo.
+     * Confirma a distância atual como o valor do eixo ativo,
+     * preservando as origens espaciais dos dois pontos.
      *
      * Quando os três eixos são concluídos, o volume é
      * calculado automaticamente. Caso um material esteja
@@ -195,11 +197,20 @@ class MeasurementViewModel(
             return
         }
 
-        val updatedDimensions =
-            state.spatialDimensions.withMeasurement(
-                axis = currentAxis,
-                measurement = currentMeasurement
+        val confirmedDimension =
+            DimensionMeasurement(
+                measurement = currentMeasurement,
+                startSource = state.selectedStartSource,
+                endSource = state.selectedEndSource
             )
+
+        val updatedDimensions =
+            state.spatialDimensions
+                .withDimensionMeasurement(
+                    axis = currentAxis,
+                    dimensionMeasurement =
+                        confirmedDimension
+                )
 
         val calculatedVolume =
             if (updatedDimensions.isComplete) {
