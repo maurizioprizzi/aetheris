@@ -4,6 +4,7 @@ import com.google.common.truth.Truth.assertThat
 import org.aetheris.app.domain.model.AnchorPlacementSource
 import org.aetheris.app.domain.model.AnchorSlot
 import org.aetheris.app.domain.model.DimensionAxis
+import org.aetheris.app.domain.model.DimensionMeasurement
 import org.aetheris.app.domain.model.DistanceMeasurement
 import org.aetheris.app.domain.model.Point3D
 import org.aetheris.app.domain.model.ScreenPoint2D
@@ -34,6 +35,29 @@ class MeasurementUiStateTest {
 
         assertThat(state.volumeMeasurement)
             .isNull()
+
+        assertThat(state.confirmedDimensionProvenanceCount)
+            .isEqualTo(0)
+
+        assertThat(state.hasConfirmedDimensionProvenance)
+            .isFalse()
+
+        assertThat(
+            state.hasCompleteConfirmedDimensionProvenance
+        ).isFalse()
+
+        assertThat(state.hasApproximateConfirmedDimension)
+            .isFalse()
+
+        assertThat(state.hasDepthBasedConfirmedDimension)
+            .isFalse()
+
+        assertThat(state.hasRefinableConfirmedDimension)
+            .isFalse()
+
+        assertThat(
+            state.shouldShowConfirmedMeasurementQualityWarning
+        ).isFalse()
     }
 
     @Test
@@ -467,6 +491,162 @@ class MeasurementUiStateTest {
 
         assertThat(state.measuredDimensionCount)
             .isEqualTo(2)
+    }
+
+    @Test
+    fun `legacy confirmed dimension has no recorded provenance`() {
+        val state =
+            MeasurementUiState(
+                spatialDimensions =
+                    SpatialDimensions(
+                        width =
+                            distance(
+                                meters = 2f
+                            )
+                    )
+            )
+
+        assertThat(state.measuredDimensionCount)
+            .isEqualTo(1)
+
+        assertThat(state.confirmedDimensionProvenanceCount)
+            .isEqualTo(0)
+
+        assertThat(state.hasConfirmedDimensionProvenance)
+            .isFalse()
+
+        assertThat(
+            state.hasCompleteConfirmedDimensionProvenance
+        ).isFalse()
+
+        assertThat(state.hasApproximateConfirmedDimension)
+            .isFalse()
+    }
+
+    @Test
+    fun `conventional confirmed dimension exposes complete provenance`() {
+        val confirmedWidth =
+            DimensionMeasurement(
+                measurement =
+                    distance(
+                        meters = 2f
+                    ),
+                startSource =
+                    AnchorPlacementSource.PLANE,
+                endSource =
+                    AnchorPlacementSource.FEATURE_POINT
+            )
+
+        val state =
+            MeasurementUiState(
+                spatialDimensions =
+                    SpatialDimensions.EMPTY
+                        .withDimensionMeasurement(
+                            axis = DimensionAxis.WIDTH,
+                            dimensionMeasurement =
+                                confirmedWidth
+                        )
+            )
+
+        assertThat(state.confirmedDimensionProvenanceCount)
+            .isEqualTo(1)
+
+        assertThat(state.hasConfirmedDimensionProvenance)
+            .isTrue()
+
+        assertThat(
+            state.hasCompleteConfirmedDimensionProvenance
+        ).isTrue()
+
+        assertThat(state.hasApproximateConfirmedDimension)
+            .isFalse()
+
+        assertThat(state.hasDepthBasedConfirmedDimension)
+            .isFalse()
+
+        assertThat(state.hasRefinableConfirmedDimension)
+            .isFalse()
+
+        assertThat(
+            state.shouldShowConfirmedMeasurementQualityWarning
+        ).isFalse()
+    }
+
+    @Test
+    fun `instant placement in confirmed dimension exposes quality warning`() {
+        val confirmedWidth =
+            DimensionMeasurement(
+                measurement =
+                    distance(
+                        meters = 2f
+                    ),
+                startSource =
+                    AnchorPlacementSource.PLANE,
+                endSource =
+                    AnchorPlacementSource.INSTANT_PLACEMENT
+            )
+
+        val state =
+            MeasurementUiState(
+                spatialDimensions =
+                    SpatialDimensions.EMPTY
+                        .withDimensionMeasurement(
+                            axis = DimensionAxis.WIDTH,
+                            dimensionMeasurement =
+                                confirmedWidth
+                        )
+            )
+
+        assertThat(state.hasConfirmedDimensionProvenance)
+            .isTrue()
+
+        assertThat(state.hasApproximateConfirmedDimension)
+            .isTrue()
+
+        assertThat(state.hasRefinableConfirmedDimension)
+            .isTrue()
+
+        assertThat(
+            state.shouldShowConfirmedMeasurementQualityWarning
+        ).isTrue()
+
+        assertThat(state.hasApproximatePlacement)
+            .isFalse()
+    }
+
+    @Test
+    fun `depth source in confirmed dimension is exposed`() {
+        val confirmedDepth =
+            DimensionMeasurement(
+                measurement =
+                    distance(
+                        meters = 4f
+                    ),
+                startSource =
+                    AnchorPlacementSource.DEPTH_POINT,
+                endSource =
+                    AnchorPlacementSource.PLANE
+            )
+
+        val state =
+            MeasurementUiState(
+                spatialDimensions =
+                    SpatialDimensions.EMPTY
+                        .withDimensionMeasurement(
+                            axis = DimensionAxis.DEPTH,
+                            dimensionMeasurement =
+                                confirmedDepth
+                        )
+            )
+
+        assertThat(state.hasDepthBasedConfirmedDimension)
+            .isTrue()
+
+        assertThat(state.hasApproximateConfirmedDimension)
+            .isFalse()
+
+        assertThat(state.hasRefinableConfirmedDimension)
+            .isFalse()
     }
 
     @Test

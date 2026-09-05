@@ -29,7 +29,8 @@ import org.aetheris.app.domain.model.VolumeMeasurement
  * podem ser utilizados para produzir uma estimativa de massa.
  *
  * O estado também preserva a procedência das âncoras da
- * dimensão atual. Isso permite que a interface diferencie
+ * dimensão atual e expõe a qualidade espacial das dimensões
+ * já confirmadas. Isso permite que a interface diferencie
  * posições confirmadas por geometria convencional de posições
  * aproximadas produzidas pelo Instant Placement.
  */
@@ -289,6 +290,59 @@ data class MeasurementUiState(
      */
     val measuredDimensionCount: Int
         get() = spatialDimensions.measuredAxisCount
+
+    /**
+     * Quantidade de eixos confirmados que possuem ao menos
+     * uma origem espacial conhecida.
+     */
+    val confirmedDimensionProvenanceCount: Int
+        get() = spatialDimensions.provenanceAxisCount
+
+    /**
+     * Indica que ao menos uma dimensão confirmada possui
+     * procedência espacial registrada.
+     */
+    val hasConfirmedDimensionProvenance: Boolean
+        get() = spatialDimensions.hasAnyProvenance
+
+    /**
+     * Indica que todos os eixos já medidos possuem a origem
+     * dos seus dois pontos registrada.
+     *
+     * Um estado sem dimensões confirmadas não é considerado
+     * como tendo procedência completa.
+     */
+    val hasCompleteConfirmedDimensionProvenance: Boolean
+        get() = spatialDimensions.hasCompleteProvenance
+
+    /**
+     * Indica que pelo menos uma dimensão confirmada utilizou
+     * Instant Placement e contém profundidade inicialmente
+     * aproximada.
+     */
+    val hasApproximateConfirmedDimension: Boolean
+        get() = spatialDimensions.usesApproximatePlacement
+
+    /**
+     * Indica que pelo menos uma dimensão confirmada utilizou
+     * uma interseção proveniente da Depth API.
+     */
+    val hasDepthBasedConfirmedDimension: Boolean
+        get() = spatialDimensions.usesDepth
+
+    /**
+     * Indica que pelo menos uma dimensão confirmada contém
+     * uma pose que pode sofrer refinamento espacial relevante.
+     */
+    val hasRefinableConfirmedDimension: Boolean
+        get() = spatialDimensions.mayRefineOverTime
+
+    /**
+     * Indica que o resultado dimensional acumulado deve ser
+     * apresentado com um aviso de posicionamento aproximado.
+     */
+    val shouldShowConfirmedMeasurementQualityWarning: Boolean
+        get() = hasApproximateConfirmedDimension
 
     /**
      * Indica que ainda existe uma dimensão pendente.
