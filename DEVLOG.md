@@ -4,6 +4,194 @@ Registro contínuo da engenharia, decisões arquiteturais (ADRs), modelagem mate
 
 ---
 
+## 🚀 [Dia 15] - 2026-09-05: Procedência Dimensional Persistente e Mira Dinâmica Alinhada ao ARCore
+
+### 🎯 Objetivos Concluídos
+
+- [x] Criação do modelo puro `DimensionMeasurement` para associar uma `DistanceMeasurement` às origens espaciais dos pontos inicial e final.
+- [x] Preservação de compatibilidade com medições anteriores, permitindo procedência ausente ou parcial.
+- [x] Inclusão de indicadores derivados para posicionamento convencional, aproximado, baseado em Depth e sujeito a refinamento.
+- [x] Evolução de `SpatialDimensions` para armazenar procedência individual de largura, altura e profundidade sem quebrar sua API histórica de distâncias.
+- [x] Propagação da procedência pelo `MeasurementViewModel` no momento da confirmação de cada eixo.
+- [x] Exposição, em `MeasurementUiState`, da qualidade acumulada das dimensões confirmadas.
+- [x] Apresentação da procedência confirmada no painel de medição, separada do estado temporário das âncoras ativas.
+- [x] Identificação, em teste físico, de que o painel expandido ainda podia cobrir a mira em determinados estados.
+- [x] Implementação de mira verticalmente adaptativa, posicionada dinamicamente acima do painel quando necessário.
+- [x] Propagação da coordenada visual da mira para o ViewModel, o repositório e os hit tests executados no frame atual.
+- [x] Manutenção do alinhamento entre desenho da mira, sondagem de superfície, cor do retículo e criação efetiva da âncora.
+- [x] Criação e ampliação de testes unitários para domínio, estado, ViewModel e repositório.
+- [x] Execução limpa da suíte completa, Android Lint e montagem do APK de Debug.
+- [x] Instalação e validação funcional em um Motorola Moto G75 5G.
+
+### 🧭 Procedência Como Parte da Medição Confirmada
+
+Até esta etapa, a origem espacial existia durante a captura dos pontos A e B, mas era descartada quando o eixo era confirmado. A distância permanecia disponível, porém já não era possível determinar posteriormente se ela havia sido obtida por plano, ponto visual, Depth ou Instant Placement.
+
+O novo modelo preserva essa informação:
+
+```kotlin
+data class DimensionMeasurement(
+  val measurement: DistanceMeasurement,
+  val startSource: AnchorPlacementSource? = null,
+  val endSource: AnchorPlacementSource? = null
+)
+```
+
+As fontes continuam opcionais para manter compatibilidade com medições anteriores à introdução da procedência. O domínio distingue:
+
+| Condição | Interpretação |
+|---|---|
+| Duas fontes convencionais | Procedência completa e convencional |
+| Uma única fonte conhecida | Procedência parcial |
+| Pelo menos um `INSTANT_PLACEMENT` | Dimensão aproximada e potencialmente refinável |
+| Pelo menos um `DEPTH_POINT` | Dimensão dependente da Depth API |
+| Nenhuma fonte | Medição legada ou procedência indisponível |
+
+Essa classificação descreve a origem geométrica da medição. Ela não representa certificação metrológica nem substitui calibração e validação contra referências físicas.
+
+### 📐 Integração com `SpatialDimensions`
+
+`SpatialDimensions` continua expondo `width`, `height` e `depth` como `DistanceMeasurement?`, preservando compatibilidade com cálculo de volume, testes e chamadas existentes.
+
+A procedência é associada por eixo através de:
+
+```kotlin
+withDimensionMeasurement(
+    axis = currentAxis,
+    dimensionMeasurement = confirmedDimension
+)
+```
+
+O modelo também passou a fornecer indicadores agregados:
+
+- Quantidade de eixos com procedência;
+- Presença de procedência completa;
+- Uso de posicionamento aproximado;
+- Uso de Depth;
+- Possibilidade de refinamento posterior.
+
+Quando uma distância é substituída pela API legada `withMeasurement`, qualquer procedência anterior daquele eixo é removida. Isso impede que fontes antigas sejam associadas a um novo valor.
+
+### 🔄 Fluxo Completo da Informação
+
+```text
+ARCore hit result
+    -> AnchorPlacementSource
+    -> SpatialFrameData
+    -> MeasurementUiState da captura ativa
+    -> MeasurementViewModel
+    -> DimensionMeasurement confirmado
+    -> SpatialDimensions
+    -> indicadores de qualidade do resultado
+    -> HUD, volume e futura exportação
+```
+
+As fontes temporárias são limpas juntamente com as âncoras ativas, mas a procedência confirmada permanece vinculada ao eixo utilizado no cálculo tridimensional.
+
+### 🎯 Mira Dinâmica Alinhada ao Painel
+
+O teste físico demonstrou que limitar e tornar o painel rolável não era suficiente em todos os seus estados. Quando dimensões, procedência, volume, seletor de material e massa estavam disponíveis, o painel podia alcançar a região central e cobrir a mira.
+
+A nova política mantém a mira no centro enquanto houver espaço e a desloca para cima somente quando o painel invade sua região:
+
+```text
+reticleY = min(
+    viewportHeight / 2,
+    panelTop - clearance - reticleRadius
+)
+
+normalizedY = reticleY / viewportHeight
+```
+
+Foi adotada uma separação visual de `20.dp` entre a mira e o painel. A solução utiliza a posição real do painel medida pelo Compose, não uma altura presumida.
+
+### 🧩 Coerência Entre Interface e Geometria
+
+Mover somente o círculo visual produziria um erro crítico: o usuário apontaria para uma posição enquanto o ARCore continuaria realizando o hit test no centro da imagem.
+
+Por isso, a alteração foi propagada por todas as camadas relevantes:
+
+1. `MeasurementScreen` mede a viewport e o topo do painel.
+2. A tela calcula a nova posição vertical da mira.
+3. A coordenada é normalizada para o intervalo `[0, 1]`.
+4. `MeasurementViewModel` preserva a posição mais recente.
+5. O ViewModel captura essa posição no instante do clique.
+6. `SpatialSensorRepositoryImpl` utiliza a mesma coordenada na sondagem periódica.
+7. A criação da âncora é processada no frame atual da thread de renderização.
+
+O repositório mantém o alvo em uma referência `@Volatile`, começa em `(0.5, 0.5)` e reinicia a sondagem de superfície quando a mira muda. Dessa forma, a cor da mira e a posição realmente utilizada pelo ARCore permanecem coerentes.
+
+### 🧪 Estratégia de Testes
+
+Foram criados ou ampliados testes para verificar:
+
+- `DimensionMeasurement` sem procedência, com procedência parcial e completa;
+- Classificação de plano, ponto visual, Depth e Instant Placement;
+- Preservação e remoção segura da procedência por eixo;
+- Indicadores agregados de `SpatialDimensions`;
+- Retenção das fontes depois da confirmação no ViewModel;
+- Distinção entre procedência ativa e confirmada no estado visual;
+- Centro da viewport como alvo padrão;
+- Conversão de coordenadas normalizadas em pixels;
+- Reinício da sondagem ao mover a mira;
+- Rejeição de coordenadas inválidas;
+- Envio da posição dinâmica para `createAnchor`.
+
+Validação limpa executada:
+
+```bash
+./gradlew clean testDebugUnitTest lintDebug assembleDebug \
+  --no-configuration-cache
+```
+
+Resultado:
+
+```text
+BUILD SUCCESSFUL
+54 actionable tasks: 54 executed
+```
+
+### 📱 Validação em Hardware
+
+O APK foi instalado com:
+
+```bash
+./gradlew installDebug \
+  --no-configuration-cache
+```
+
+O teste físico confirmou que a mira permaneceu visível enquanto o painel alterava sua altura. O Logcat também demonstrou que as coordenadas utilizadas pelo hit test acompanharam o deslocamento visual:
+
+| Estado observado | Coordenada X | Coordenada Y |
+|---|---:|---:|
+| Centro disponível | `539.5` | `1193.5` |
+| Deslocamento intermediário | `539.5` | `1098.5398` |
+| Deslocamento intermediário | `539.5` | `1038.565` |
+| Painel expandido | `539.5` | `808.6612` |
+
+O eixo X permaneceu central, enquanto o eixo Y variou conforme a altura do painel. Âncoras foram criadas com sucesso nessas posições usando tanto geometria convencional quanto Instant Placement.
+
+Não foram observados crash, ANR ou exceção fatal. As mensagens nativas periódicas de `ComputeDisparity` continuaram presentes, mas não interromperam a sessão nem impediram o fluxo de medição.
+
+### 🧾 Commits do Dia
+
+| Commit | Alteração |
+|---|---|
+| `fef2899` | Criação de `DimensionMeasurement` e seus testes |
+| `e4e6258` | Preservação de procedência em `SpatialDimensions` |
+| `a2f5d96` | Retenção das fontes após confirmação no ViewModel |
+| `fb7a97b` | Indicadores de procedência confirmada no estado visual |
+| `5a5dbcf` | Mira dinâmica alinhada ao painel e ao pipeline ARCore |
+
+### 🏛️ Decisão Arquitetural Candidata
+
+- **ADR-018: Dynamic Reticle Geometry and Confirmed Dimension Provenance**
+  - **Contexto:** O crescimento do painel podia ocultar a mira, e mover apenas sua representação visual criaria divergência entre interface e hit test.
+  - **Decisão:** Medir dinamicamente o topo do painel, reposicionar a mira quando necessário e propagar a mesma coordenada normalizada até o processamento frame-affine do ARCore. A procedência dos pontos passa a permanecer associada a cada eixo confirmado.
+  - **Status:** Implementado; registro standalone pendente.
+
+---
+
 ## 🚀 [Dia 14] - 2026-09-03: HUD de Procedência, Painel Adaptativo e Automação de Releases
 
 ### 🎯 Objetivos Concluídos
@@ -640,12 +828,13 @@ Essa formulação evita divisões por zero e continua válida quando uma das dim
 
 ---
 
-## 🔮 Próximos Passos Definidos para o Dia 15
+## 🔮 Próximos Passos Definidos para o Dia 16
 
-- [ ] Preservar a procedência das âncoras junto a cada eixo depois da confirmação da dimensão.
-- [ ] Modelar a qualidade da medição confirmada sem acoplar o domínio às classes do ARCore.
-- [ ] Definir uma política explícita para aceitar, repetir ou sinalizar dimensões aproximadas.
+- [ ] Criar o registro standalone do `ADR-018` sobre procedência dimensional e geometria dinâmica da mira.
+- [ ] Definir uma política explícita para aceitar, repetir ou sinalizar dimensões aproximadas antes da estimativa final.
 - [ ] Preparar dimensões, incertezas e procedência para futura persistência e exportação.
-- [ ] Validar o workflow automatizado com a próxima tag de pré-release.
-- [ ] Continuar observando as mensagens nativas de `ComputeDisparity` em diferentes aparelhos e versões do Google Play Services for AR.
-- [ ] Repetir testes físicos comparando medidas convencionais e aproximadas contra objetos de dimensões conhecidas.
+- [ ] Criar um protocolo inicial de calibração com objetos de dimensões conhecidas.
+- [ ] Comparar medições convencionais e aproximadas em múltiplas distâncias e condições de cena.
+- [ ] Validar novamente o workflow automatizado na próxima tag de pré-release.
+- [ ] Continuar observando `ComputeDisparity` em outros aparelhos e versões do Google Play Services for AR.
+- [ ] Avaliar a promoção da versão para `v0.1.3-alpha` após documentação e nova rodada de validação física.
