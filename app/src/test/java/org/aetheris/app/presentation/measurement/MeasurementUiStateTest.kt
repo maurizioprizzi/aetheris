@@ -9,11 +9,15 @@ import org.aetheris.app.domain.model.DistanceMeasurement
 import org.aetheris.app.domain.model.Point3D
 import org.aetheris.app.domain.model.ScreenPoint2D
 import org.aetheris.app.domain.model.SpatialDimensions
+import org.aetheris.app.domain.model.SpatialMeasurementQuality
 import org.aetheris.app.domain.model.TrackingStatus
 import org.aetheris.app.domain.model.VolumeMeasurement
 import org.junit.Assert.assertThrows
 import org.junit.Test
 
+/**
+ * Verifica as regras derivadas do estado da tela de medição.
+ */
 class MeasurementUiStateTest {
 
     @Test
@@ -57,6 +61,31 @@ class MeasurementUiStateTest {
 
         assertThat(
             state.shouldShowConfirmedMeasurementQualityWarning
+        ).isFalse()
+
+        assertThat(
+            state.confirmedMeasurementQualityClassification
+        ).isEqualTo(
+            SpatialMeasurementQuality
+                .Classification.INCOMPLETE
+        )
+
+        assertThat(state.confirmedKnownAnchorCount)
+            .isEqualTo(0)
+
+        assertThat(state.confirmedUnknownAnchorCount)
+            .isEqualTo(0)
+
+        assertThat(
+            state.hasConclusiveConfirmedMeasurementQuality
+        ).isFalse()
+
+        assertThat(
+            state.requiresConfirmedMeasurementQualityConfirmation
+        ).isFalse()
+
+        assertThat(
+            state.canProduceExperimentalPhysicalEstimate
         ).isFalse()
     }
 
@@ -650,6 +679,154 @@ class MeasurementUiStateTest {
     }
 
     @Test
+    fun `complete legacy dimensions require quality confirmation`() {
+        val state =
+            MeasurementUiState(
+                spatialDimensions =
+                    completeDimensions()
+            )
+
+        assertThat(
+            state.confirmedMeasurementQualityClassification
+        ).isEqualTo(
+            SpatialMeasurementQuality
+                .Classification.INCOMPLETE
+        )
+
+        assertThat(state.confirmedKnownAnchorCount)
+            .isEqualTo(0)
+
+        assertThat(state.confirmedUnknownAnchorCount)
+            .isEqualTo(6)
+
+        assertThat(
+            state.hasConclusiveConfirmedMeasurementQuality
+        ).isFalse()
+
+        assertThat(
+            state.requiresConfirmedMeasurementQualityConfirmation
+        ).isTrue()
+
+        assertThat(
+            state.shouldShowConfirmedMeasurementQualityWarning
+        ).isTrue()
+
+        assertThat(
+            state.canProduceExperimentalPhysicalEstimate
+        ).isTrue()
+
+        assertThat(state.isReadyToCalculateVolume)
+            .isTrue()
+    }
+
+    @Test
+    fun `complete conventional dimensions expose conclusive quality`() {
+        val state =
+            MeasurementUiState(
+                spatialDimensions =
+                    completeDimensionsWithProvenance(
+                        widthSources =
+                            AnchorPlacementSource.PLANE to
+                                    AnchorPlacementSource.PLANE,
+                        heightSources =
+                            AnchorPlacementSource.FEATURE_POINT to
+                                    AnchorPlacementSource.PLANE,
+                        depthSources =
+                            AnchorPlacementSource.DEPTH_POINT to
+                                    AnchorPlacementSource.PLANE
+                    )
+            )
+
+        assertThat(
+            state.confirmedMeasurementQualityClassification
+        ).isEqualTo(
+            SpatialMeasurementQuality
+                .Classification.CONVENTIONAL
+        )
+
+        assertThat(state.confirmedKnownAnchorCount)
+            .isEqualTo(6)
+
+        assertThat(state.confirmedUnknownAnchorCount)
+            .isEqualTo(0)
+
+        assertThat(
+            state.hasConclusiveConfirmedMeasurementQuality
+        ).isTrue()
+
+        assertThat(
+            state.requiresConfirmedMeasurementQualityConfirmation
+        ).isFalse()
+
+        assertThat(
+            state.shouldShowConfirmedMeasurementQualityWarning
+        ).isFalse()
+
+        assertThat(state.hasDepthBasedConfirmedDimension)
+            .isTrue()
+
+        assertThat(
+            state.canProduceExperimentalPhysicalEstimate
+        ).isTrue()
+    }
+
+    @Test
+    fun `mixed confirmed dimensions require quality confirmation`() {
+        val state =
+            MeasurementUiState(
+                spatialDimensions =
+                    completeDimensionsWithProvenance(
+                        widthSources =
+                            AnchorPlacementSource.PLANE to
+                                    AnchorPlacementSource
+                                        .INSTANT_PLACEMENT,
+                        heightSources =
+                            AnchorPlacementSource.FEATURE_POINT to
+                                    AnchorPlacementSource.PLANE,
+                        depthSources =
+                            AnchorPlacementSource.DEPTH_POINT to
+                                    AnchorPlacementSource
+                                        .INSTANT_PLACEMENT
+                    )
+            )
+
+        assertThat(
+            state.confirmedMeasurementQualityClassification
+        ).isEqualTo(
+            SpatialMeasurementQuality
+                .Classification.MIXED
+        )
+
+        assertThat(state.confirmedKnownAnchorCount)
+            .isEqualTo(6)
+
+        assertThat(state.confirmedUnknownAnchorCount)
+            .isEqualTo(0)
+
+        assertThat(
+            state.hasConclusiveConfirmedMeasurementQuality
+        ).isTrue()
+
+        assertThat(state.hasApproximateConfirmedDimension)
+            .isTrue()
+
+        assertThat(state.hasRefinableConfirmedDimension)
+            .isTrue()
+
+        assertThat(
+            state.requiresConfirmedMeasurementQualityConfirmation
+        ).isTrue()
+
+        assertThat(
+            state.shouldShowConfirmedMeasurementQualityWarning
+        ).isTrue()
+
+        assertThat(
+            state.canProduceExperimentalPhysicalEstimate
+        ).isTrue()
+    }
+
+    @Test
     fun `no axis remains after all dimensions are measured`() {
         val state =
             MeasurementUiState(
@@ -822,6 +999,62 @@ class MeasurementUiStateTest {
                 distance(
                     meters = 4f
                 )
+        )
+    }
+
+    private fun completeDimensionsWithProvenance(
+        widthSources:
+        Pair<AnchorPlacementSource, AnchorPlacementSource>,
+        heightSources:
+        Pair<AnchorPlacementSource, AnchorPlacementSource>,
+        depthSources:
+        Pair<AnchorPlacementSource, AnchorPlacementSource>
+    ): SpatialDimensions {
+        return SpatialDimensions.EMPTY
+            .withDimensionMeasurement(
+                axis = DimensionAxis.WIDTH,
+                dimensionMeasurement =
+                    dimensionMeasurement(
+                        measurement =
+                            distance(
+                                meters = 2f
+                            ),
+                        sources = widthSources
+                    )
+            )
+            .withDimensionMeasurement(
+                axis = DimensionAxis.HEIGHT,
+                dimensionMeasurement =
+                    dimensionMeasurement(
+                        measurement =
+                            distance(
+                                meters = 3f
+                            ),
+                        sources = heightSources
+                    )
+            )
+            .withDimensionMeasurement(
+                axis = DimensionAxis.DEPTH,
+                dimensionMeasurement =
+                    dimensionMeasurement(
+                        measurement =
+                            distance(
+                                meters = 4f
+                            ),
+                        sources = depthSources
+                    )
+            )
+    }
+
+    private fun dimensionMeasurement(
+        measurement: DistanceMeasurement,
+        sources:
+        Pair<AnchorPlacementSource, AnchorPlacementSource>
+    ): DimensionMeasurement {
+        return DimensionMeasurement(
+            measurement = measurement,
+            startSource = sources.first,
+            endSource = sources.second
         )
     }
 

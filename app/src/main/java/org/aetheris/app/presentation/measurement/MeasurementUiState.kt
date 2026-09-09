@@ -10,11 +10,12 @@ import org.aetheris.app.domain.model.MaterialDensity
 import org.aetheris.app.domain.model.Point3D
 import org.aetheris.app.domain.model.ScreenPoint2D
 import org.aetheris.app.domain.model.SpatialDimensions
+import org.aetheris.app.domain.model.SpatialMeasurementQuality
 import org.aetheris.app.domain.model.TrackingStatus
 import org.aetheris.app.domain.model.VolumeMeasurement
 
 /**
- * Estado visual da tela de medição espacial.
+ * Estado visual imutável da tela de medição espacial.
  *
  * Uma dimensão é capturada por vez utilizando dois pontos:
  *
@@ -292,6 +293,67 @@ data class MeasurementUiState(
         get() = spatialDimensions.measuredAxisCount
 
     /**
+     * Avaliação consolidada das dimensões confirmadas e das
+     * procedências espaciais associadas aos seus seis pontos.
+     *
+     * O valor é sempre derivado de [spatialDimensions]. Ele não é
+     * armazenado separadamente, preservando uma única fonte de verdade
+     * para a medição e evitando estados de qualidade obsoletos.
+     */
+    val spatialMeasurementQuality: SpatialMeasurementQuality
+        get() = SpatialMeasurementQuality.assess(
+            spatialDimensions
+        )
+
+    /**
+     * Classificação consolidada da medição espacial confirmada.
+     */
+    val confirmedMeasurementQualityClassification:
+            SpatialMeasurementQuality.Classification
+        get() = spatialMeasurementQuality.classification
+
+    /**
+     * Quantidade de âncoras confirmadas cuja procedência
+     * espacial é conhecida.
+     */
+    val confirmedKnownAnchorCount: Int
+        get() = spatialMeasurementQuality
+            .knownAnchorCount
+
+    /**
+     * Quantidade de âncoras confirmadas cuja procedência
+     * ainda é desconhecida.
+     */
+    val confirmedUnknownAnchorCount: Int
+        get() = spatialMeasurementQuality
+            .unknownAnchorCount
+
+    /**
+     * Indica que largura, altura, profundidade e todas as suas
+     * procedências permitem uma avaliação conclusiva.
+     */
+    val hasConclusiveConfirmedMeasurementQuality: Boolean
+        get() = spatialMeasurementQuality.isConclusive
+
+    /**
+     * Indica que a medição completa contém aproximação ou
+     * procedência insuficiente e deve ser confirmada pelo usuário.
+     */
+    val requiresConfirmedMeasurementQualityConfirmation: Boolean
+        get() = spatialMeasurementQuality
+            .requiresExplicitConfirmation
+
+    /**
+     * Indica que os três eixos permitem produzir volume e massa
+     * somente como estimativas experimentais.
+     *
+     * Este indicador não representa precisão certificada.
+     */
+    val canProduceExperimentalPhysicalEstimate: Boolean
+        get() = spatialMeasurementQuality
+            .canProduceExperimentalEstimate
+
+    /**
      * Quantidade de eixos confirmados que possuem ao menos
      * uma origem espacial conhecida.
      */
@@ -313,7 +375,8 @@ data class MeasurementUiState(
      * como tendo procedência completa.
      */
     val hasCompleteConfirmedDimensionProvenance: Boolean
-        get() = spatialDimensions.hasCompleteProvenance
+        get() = spatialMeasurementQuality
+            .hasCompleteProvenance
 
     /**
      * Indica que pelo menos uma dimensão confirmada utilizou
@@ -321,28 +384,36 @@ data class MeasurementUiState(
      * aproximada.
      */
     val hasApproximateConfirmedDimension: Boolean
-        get() = spatialDimensions.usesApproximatePlacement
+        get() = spatialMeasurementQuality
+            .containsApproximatePlacement
 
     /**
      * Indica que pelo menos uma dimensão confirmada utilizou
      * uma interseção proveniente da Depth API.
      */
     val hasDepthBasedConfirmedDimension: Boolean
-        get() = spatialDimensions.usesDepth
+        get() = spatialMeasurementQuality.usesDepth
 
     /**
      * Indica que pelo menos uma dimensão confirmada contém
      * uma pose que pode sofrer refinamento espacial relevante.
      */
     val hasRefinableConfirmedDimension: Boolean
-        get() = spatialDimensions.mayRefineOverTime
+        get() = spatialMeasurementQuality
+            .mayRefineOverTime
 
     /**
      * Indica que o resultado dimensional acumulado deve ser
-     * apresentado com um aviso de posicionamento aproximado.
+     * apresentado com um aviso de qualidade.
+     *
+     * O aviso aparece imediatamente quando qualquer dimensão já
+     * confirmada utilizou Instant Placement. Ele também é necessário
+     * quando os três eixos existem, mas alguma procedência espacial
+     * está ausente.
      */
     val shouldShowConfirmedMeasurementQualityWarning: Boolean
-        get() = hasApproximateConfirmedDimension
+        get() = hasApproximateConfirmedDimension ||
+                requiresConfirmedMeasurementQualityConfirmation
 
     /**
      * Indica que ainda existe uma dimensão pendente.
@@ -366,14 +437,15 @@ data class MeasurementUiState(
      * já foram confirmadas.
      */
     val hasCompleteSpatialDimensions: Boolean
-        get() = spatialDimensions.isComplete
+        get() = spatialMeasurementQuality
+            .hasCompleteDimensions
 
     /**
      * Indica que as dimensões estão completas, mas o
      * volume ainda precisa ser calculado.
      */
     val isReadyToCalculateVolume: Boolean
-        get() = hasCompleteSpatialDimensions &&
+        get() = canProduceExperimentalPhysicalEstimate &&
                 volumeMeasurement == null
 
     /**
