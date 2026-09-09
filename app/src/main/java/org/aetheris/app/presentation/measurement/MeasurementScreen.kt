@@ -62,6 +62,7 @@ import org.aetheris.app.domain.model.MassEstimate
 import org.aetheris.app.domain.model.MaterialDensity
 import org.aetheris.app.domain.model.MaterialDensityCatalog
 import org.aetheris.app.domain.model.SpatialDimensions
+import org.aetheris.app.domain.model.SpatialMeasurementQuality
 import org.aetheris.app.domain.model.TrackingStatus
 import org.aetheris.app.domain.model.VolumeMeasurement
 import org.aetheris.app.presentation.components.ArCameraFeed
@@ -730,66 +731,95 @@ private fun PlacementProvenanceStatus(
 }
 
 /**
- * Resume a procedência acumulada das dimensões já confirmadas.
+ * Resume a qualidade espacial acumulada das dimensões confirmadas.
  *
  * Este bloco descreve o histórico utilizado para calcular o
  * volume e a massa. Ele permanece separado da procedência das
  * âncoras da dimensão que ainda está sendo capturada.
+ *
+ * A classificação é derivada exclusivamente de
+ * [MeasurementUiState.spatialMeasurementQuality]. A interface não
+ * recalcula regras de domínio nem armazena uma cópia da avaliação.
  */
 @Composable
 private fun ConfirmedMeasurementProvenanceStatus(
     uiState: MeasurementUiState
 ) {
+    val quality =
+        uiState.spatialMeasurementQuality
+
     val presentation =
-        when {
-            uiState.hasApproximateConfirmedDimension -> {
+        when (quality.classification) {
+            SpatialMeasurementQuality
+                .Classification.CONVENTIONAL -> {
+                ConfirmedProvenancePresentation(
+                    color = if (quality.usesDepth) {
+                        DepthActiveColor
+                    } else {
+                        SuccessColor
+                    },
+                    title = "QUALIDADE CONVENCIONAL",
+                    description = if (quality.usesDepth) {
+                        "Todas as origens são convencionais e " +
+                                "ao menos uma utiliza a Depth API."
+                    } else {
+                        "Todas as origens foram obtidas por " +
+                                "geometria convencional do ARCore."
+                    }
+                )
+            }
+
+            SpatialMeasurementQuality
+                .Classification.MIXED -> {
                 ConfirmedProvenancePresentation(
                     color = ApproximatePlacementColor,
-                    title = "RESULTADO COM POSICIONAMENTO APROXIMADO",
+                    title = "QUALIDADE MISTA",
                     description =
-                        "Ao menos um eixo confirmado usa " +
-                                "Instant Placement."
+                        "${quality.approximateAnchorCount} de " +
+                                "${quality.knownAnchorCount} âncoras " +
+                                "usam Instant Placement."
                 )
             }
 
-            uiState.hasDepthBasedConfirmedDimension -> {
+            SpatialMeasurementQuality
+                .Classification.APPROXIMATE -> {
                 ConfirmedProvenancePresentation(
-                    color = DepthActiveColor,
-                    title = "RESULTADO COM PROFUNDIDADE",
+                    color = ApproximatePlacementColor,
+                    title = "QUALIDADE APROXIMADA",
                     description =
-                        "Ao menos um eixo confirmado usa " +
-                                "dados da Depth API."
+                        "Todas as âncoras usam Instant Placement " +
+                                "e podem sofrer refinamento espacial."
                 )
             }
 
-            uiState
-                .hasCompleteConfirmedDimensionProvenance -> {
+            SpatialMeasurementQuality
+                .Classification.INCOMPLETE -> {
                 ConfirmedProvenancePresentation(
-                    color = SuccessColor,
-                    title = "PROCEDÊNCIA ESPACIAL COMPLETA",
-                    description =
-                        "As origens dos pontos confirmados " +
-                                "estão registradas."
-                )
-            }
+                    color = when {
+                        quality.containsApproximatePlacement ->
+                            ApproximatePlacementColor
 
-            uiState.hasConfirmedDimensionProvenance -> {
-                ConfirmedProvenancePresentation(
-                    color = WarningColor,
-                    title = "PROCEDÊNCIA ESPACIAL PARCIAL",
-                    description =
-                        "Nem todos os pontos confirmados possuem " +
-                                "origem registrada."
-                )
-            }
+                        quality.unknownAnchorCount > 0 ->
+                            WarningColor
 
-            else -> {
-                ConfirmedProvenancePresentation(
-                    color = InactiveColor,
-                    title = "PROCEDÊNCIA NÃO REGISTRADA",
-                    description =
-                        "As dimensões confirmadas não possuem " +
-                                "origem espacial disponível."
+                        else ->
+                            InactiveColor
+                    },
+                    title = "QUALIDADE INCOMPLETA",
+                    description = when {
+                        quality.unknownAnchorCount > 0 ->
+                            "${quality.unknownAnchorCount} âncora(s) " +
+                                    "ainda não possuem procedência."
+
+                        quality.containsApproximatePlacement ->
+                            "A medição parcial já contém Instant " +
+                                    "Placement; faltam eixos para a " +
+                                    "avaliação final."
+
+                        else ->
+                            "A avaliação final estará disponível " +
+                                    "depois dos três eixos."
+                    }
                 )
             }
         }
@@ -823,8 +853,8 @@ private fun ConfirmedMeasurementProvenanceStatus(
 
             Text(
                 text =
-                    "${uiState.confirmedDimensionProvenanceCount}/" +
-                            "${uiState.measuredDimensionCount} eixos com " +
+                    "${quality.knownAnchorCount}/" +
+                            "${quality.expectedAnchorCount} âncoras com " +
                             "procedência. ${presentation.description}",
                 fontSize = 10.sp,
                 color = SecondaryTextColor,
