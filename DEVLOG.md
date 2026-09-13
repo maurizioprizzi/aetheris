@@ -1,6 +1,210 @@
+<!-- Artifact revision: DEVLOG-day17-object-aware-v1 -->
+
 # 📐 Aetheris - Diário de Desenvolvimento (DEVLOG)
 
 Registro contínuo da engenharia, decisões arquiteturais (ADRs), modelagem matemática e evolução do ecossistema Aetheris.
+
+---
+
+## 🧠 [Dia 17] - 2026-09-13: Fundação de Estimativa Física Orientada a Objetos
+
+### 🎯 Objetivos Concluídos
+
+- [x] Formalização do `ADR-018: Object-Aware Physical Estimation` como decisão aceita e com implementação incremental pendente.
+- [x] Atualização do registro `docs/adr/README.md` com o novo documento standalone.
+- [x] Definição explícita de seis estratégias físicas em `PhysicalEstimationStrategy`.
+- [x] Preservação do cálculo atual de massa como estratégia exclusiva para sólidos homogêneos.
+- [x] Criação de `ObjectProfile` para representar arquétipos reutilizáveis sem confundi-los com objetos observados.
+- [x] Validação de identificadores estáveis, nomes, descrições e sugestões não confirmadas de materiais.
+- [x] Criação de `ObjectProfileCatalog` com quatro perfis iniciais para seleção manual futura.
+- [x] Inclusão dos perfis sólido homogêneo genérico, livro, recipiente e móvel de painéis.
+- [x] Implementação de buscas normalizadas por identificador e nome, além de filtragem por estratégia.
+- [x] Criação de suítes unitárias abrangentes para estratégias, perfis e integridade do catálogo.
+- [x] Execução limpa dos testes unitários, Android Lint e montagem do APK de Debug após cada incremento de código.
+- [x] Atualização do `README.md` com capacidades, limites, arquitetura, ADR-018 e roadmap object-aware.
+- [x] Manutenção do pipeline ARCore e da interface sem alterações durante a expansão do domínio.
+
+### 🧭 Problema Físico Identificado
+
+O cálculo de massa já implementado utiliza:
+
+$$m = V \times \rho$$
+
+Esse modelo é apropriado quando o volume medido está predominantemente ocupado por um único material homogêneo. Entretanto, ele não pode ser aplicado indiscriminadamente ao volume externo de objetos comuns:
+
+| Objeto | Limitação do modelo sólido |
+|---|---|
+| Livro | Combina papel, capas, adesivos e pequenos espaços internos. |
+| Estante | É formada por painéis ao redor de grandes regiões vazias. |
+| Recipiente | Possui paredes e geometria interna; seu conteúdo é uma entidade separada. |
+| Objeto composto | Pode combinar materiais, geometrias e incertezas diferentes. |
+
+Multiplicar todo o volume externo pela densidade de MDF, papel, vidro ou outro material produziria um resultado numericamente preciso, mas fisicamente incorreto.
+
+### 🏛️ ADR-018: Object-Aware Physical Estimation
+
+O ADR-018 estabelece que geometria medida, classificação do objeto, material e hipóteses do modelo físico são fontes de evidência distintas.
+
+A seleção de um perfil poderá recomendar uma estratégia e materiais plausíveis, mas não confirmará silenciosamente nenhum deles. O usuário deverá confirmar ou corrigir as hipóteses que influenciam materialmente o resultado.
+
+O reconhecimento visual será introduzido somente depois que a seleção manual determinística, os parâmetros físicos e os cálculos específicos estiverem implementados e validados.
+
+Registro standalone:
+
+- [`ADR-018: Object-Aware Physical Estimation`](docs/adr/ADR-018-object-aware-physical-estimation.md)
+
+### ⚙️ Estratégias Físicas
+
+`PhysicalEstimationStrategy` define o vocabulário do domínio:
+
+| Estratégia | Modelo | Estado do cálculo |
+|---|---|---|
+| `HOMOGENEOUS_SOLID` | Volume externo integral multiplicado pela densidade. | Implementado pelo caso de uso atual. |
+| `OCCUPANCY_ADJUSTED` | Volume externo ajustado por fração de ocupação explícita. | Pendente. |
+| `PANEL_ASSEMBLY` | Soma dos volumes dos painéis estruturais. | Pendente. |
+| `SHELL_OR_CONTAINER` | Diferença entre geometrias externa e interna. | Pendente. |
+| `COMPONENT_COMPOSITION` | Soma de componentes com geometrias e materiais próprios. | Pendente. |
+| `EMPIRICAL_REFERENCE` | Referência documentada com faixa de aplicação e incerteza. | Pendente. |
+
+As propriedades derivadas indicam quais parâmetros adicionais cada estratégia exige e impedem que o caso de uso atual seja tratado como compatível com modelos avançados.
+
+### 🧩 Perfis Reutilizáveis
+
+`ObjectProfile` contém:
+
+- Identificador canônico e estável;
+- Nome apresentado ao usuário;
+- Descrição e limitações físicas;
+- Estratégia recomendada;
+- Lista ordenada de materiais apenas sugeridos.
+
+O modelo rejeita identificadores inválidos, nomes e descrições vazios e materiais duplicados por nome. Sugestões podem ser consultadas por nome ignorando caixa e espaços externos.
+
+O perfil não contém resultado de reconhecimento, confiança visual, material confirmado, parâmetros do objeto observado ou massa calculada. Esses elementos pertencerão futuramente ao estado de uma sessão de estimativa.
+
+### 📚 Catálogo Manual Inicial
+
+`ObjectProfileCatalog` oferece quatro perfis determinísticos:
+
+| Perfil | Estratégia recomendada | Situação atual |
+|---|---|---|
+| Sólido homogêneo genérico | `HOMOGENEOUS_SOLID` | Compatível com o cálculo existente. |
+| Livro | `COMPONENT_COMPOSITION` | Aguardando materiais e modelo de componentes. |
+| Recipiente | `SHELL_OR_CONTAINER` | Aguardando geometria interna ou espessura. |
+| Móvel de painéis | `PANEL_ASSEMBLY` | Aguardando parâmetros dos painéis e referências de MDF/compensado. |
+
+O livro permanece sem sugestões provisórias porque papel, papelão, revestimentos e adesivos ainda não possuem referências próprias no catálogo. O móvel utiliza madeira genérica apenas como indicação temporária, explicitamente documentada.
+
+### 🧪 Estratégia de Testes
+
+Foram adicionadas suítes dedicadas para verificar:
+
+- As seis estratégias e sua ordem oficial;
+- Compatibilidade exclusiva do sólido homogêneo com o cálculo atual;
+- Requisitos estruturais específicos de cada estratégia avançada;
+- Identificadores de perfis e seus limites;
+- Campos obrigatórios e rejeição de materiais duplicados;
+- Busca normalizada e igualdade estrutural de densidades;
+- Ordem e unicidade do catálogo;
+- Estratégias e materiais associados a cada perfil;
+- Ausência deliberada de perfis para estratégias ainda não representadas.
+
+Validação completa executada nos incrementos de código:
+
+```bash
+./gradlew clean testDebugUnitTest lintDebug assembleDebug \
+  --no-configuration-cache
+```
+
+Resultado:
+
+```text
+BUILD SUCCESSFUL
+54 actionable tasks: 54 executed
+```
+
+### 🧾 Commits do Dia
+
+| Commit | Alteração |
+|---|---|
+| `6c0e89d` | Registro standalone e índice do ADR-018 |
+| `64159a5` | Estratégias explícitas de estimativa física e testes |
+| `f2dedf3` | Perfis reutilizáveis de objetos e testes |
+| `07cac31` | Catálogo manual inicial de perfis e testes |
+| `d0a9431` | Atualização do README com a fundação object-aware |
+
+### 📌 Estado ao Final do Dia
+
+- A fundação object-aware está implementada em Kotlin puro.
+- O cálculo existente continua válido apenas para `HOMOGENEOUS_SOLID`.
+- Estratégias avançadas estão definidas, mas ainda não possuem parâmetros nem cálculos executáveis.
+- Perfis de objetos ainda não estão integrados ao `MeasurementUiState`, ViewModel ou Compose.
+- Reconhecimento visual permanece planejado e dependerá de confirmação humana.
+- Nenhuma alteração foi realizada no pipeline ARCore estável.
+
+---
+
+## 📊 [Dia 16] - 2026-09-09: Classificação Consolidada de Qualidade Espacial e HUD
+
+### 🎯 Objetivos Concluídos
+
+- [x] Criação de `SpatialMeasurementQuality` para consolidar a procedência das dimensões confirmadas.
+- [x] Definição das classificações `INCOMPLETE`, `CONVENTIONAL`, `MIXED` e `APPROXIMATE`.
+- [x] Contagem explícita de âncoras esperadas, conhecidas, desconhecidas, convencionais, aproximadas, baseadas em Depth e refináveis.
+- [x] Exposição de rastreabilidade, conclusão e necessidade de confirmação explícita.
+- [x] Integração da qualidade consolidada em `MeasurementUiState`.
+- [x] Preservação separada do estado temporário da captura ativa e da qualidade das dimensões confirmadas.
+- [x] Apresentação das quatro classificações diretamente no HUD.
+- [x] Exibição da cobertura de procedência das âncoras confirmadas.
+- [x] Ampliação das suítes de testes do domínio e do estado de apresentação.
+- [x] Execução limpa de testes unitários, Android Lint e montagem do APK.
+- [x] Instalação e validação visual em um Motorola Moto G75 5G.
+
+### 📐 Semântica da Qualidade
+
+A classificação resume a procedência espacial utilizada pelos eixos confirmados:
+
+| Classificação | Interpretação |
+|---|---|
+| `INCOMPLETE` | Dimensões ou procedência insuficientes para uma conclusão espacial. |
+| `CONVENTIONAL` | Todas as âncoras esperadas possuem fontes convencionais conhecidas. |
+| `MIXED` | Fontes convencionais e aproximadas participam da medição. |
+| `APPROXIMATE` | Todas as fontes conhecidas relevantes dependem de Instant Placement. |
+
+Essa qualidade descreve rastreabilidade geométrica. Ela não certifica precisão, calibração, repetibilidade ou adequação metrológica.
+
+### 🖥️ Integração com o HUD
+
+O painel passou a apresentar estados explícitos:
+
+- `QUALIDADE CONVENCIONAL`;
+- `QUALIDADE MISTA`;
+- `QUALIDADE APROXIMADA`;
+- `QUALIDADE INCOMPLETA`.
+
+O HUD também mostra a quantidade de âncoras com procedência conhecida em relação ao total esperado e preserva os avisos específicos para dimensões confirmadas que utilizaram Instant Placement.
+
+### 📱 Validação Física e Diagnóstico
+
+O teste físico confirmou:
+
+- Interface responsiva e classificação visual correta;
+- Mira adaptativa permanentemente visível;
+- Coordenada horizontal central preservada;
+- Coordenada vertical ajustada conforme a altura do painel;
+- Criação bem-sucedida de dez âncoras: oito por `PLANE`, uma por `FEATURE_POINT` e uma por `INSTANT_PLACEMENT`;
+- Ausência de crash, ANR ou exceção fatal;
+- Pausa e destruição completas da sessão ARCore.
+
+As mensagens nativas de `ComputeDisparity` permaneceram presentes em sete ocorrências, mas não interromperam rastreamento, posicionamento ou classificação. Essa investigação permanece independente do incremento de interface.
+
+### 🧾 Commits do Dia
+
+| Commit | Alteração |
+|---|---|
+| `73286ed` | Classificação consolidada de qualidade espacial e testes |
+| `fb39749` | Integração da qualidade ao estado de medição e testes |
+| `76feef7` | Apresentação da qualidade espacial no HUD |
 
 ---
 
@@ -185,7 +389,7 @@ Não foram observados crash, ANR ou exceção fatal. As mensagens nativas perió
 
 ### 🏛️ Decisão Arquitetural Candidata
 
-- **ADR-018: Dynamic Reticle Geometry and Confirmed Dimension Provenance**
+- **Future ADR: Dynamic Reticle Geometry and Confirmed Dimension Provenance**
   - **Contexto:** O crescimento do painel podia ocultar a mira, e mover apenas sua representação visual criaria divergência entre interface e hit test.
   - **Decisão:** Medir dinamicamente o topo do painel, reposicionar a mira quando necessário e propagar a mesma coordenada normalizada até o processamento frame-affine do ARCore. A procedência dos pontos passa a permanecer associada a cada eixo confirmado.
   - **Status:** Implementado; registro standalone pendente.
@@ -828,13 +1032,17 @@ Essa formulação evita divisões por zero e continua válida quando uma das dim
 
 ---
 
-## 🔮 Próximos Passos Definidos para o Dia 16
+## 🔮 Próximos Passos Definidos para o Dia 18
 
-- [ ] Criar o registro standalone do `ADR-018` sobre procedência dimensional e geometria dinâmica da mira.
+- [ ] Pesquisar fontes técnicas para densidades e incertezas de papel, papelão, MDF, compensado, revestimentos e adesivos.
+- [ ] Ampliar `MaterialDensityCatalog` somente com referências documentadas e intervalos fisicamente justificáveis.
+- [ ] Associar os novos materiais aos perfis `BOOK` e `PANEL_FURNITURE` sem transformá-los em confirmações automáticas.
+- [ ] Definir modelos validados de parâmetros para ocupação, painéis, cascas, componentes e referências empíricas.
+- [ ] Implementar uma estratégia object-aware por vez, preservando o cálculo existente para sólidos homogêneos.
+- [ ] Projetar o estado de uma sessão que diferencie perfil sugerido, perfil confirmado, material sugerido e material confirmado.
+- [ ] Expor seleção manual e confirmação de hipóteses antes de introduzir reconhecimento visual.
 - [ ] Definir uma política explícita para aceitar, repetir ou sinalizar dimensões aproximadas antes da estimativa final.
-- [ ] Preparar dimensões, incertezas e procedência para futura persistência e exportação.
-- [ ] Criar um protocolo inicial de calibração com objetos de dimensões conhecidas.
-- [ ] Comparar medições convencionais e aproximadas em múltiplas distâncias e condições de cena.
-- [ ] Validar novamente o workflow automatizado na próxima tag de pré-release.
+- [ ] Preparar dimensões, qualidade, incertezas e procedência para futura persistência e exportação.
+- [ ] Criar um protocolo inicial de calibração com objetos de dimensões e massas conhecidas.
 - [ ] Continuar observando `ComputeDisparity` em outros aparelhos e versões do Google Play Services for AR.
 - [ ] Avaliar a promoção da versão para `v0.1.3-alpha` após documentação e nova rodada de validação física.
