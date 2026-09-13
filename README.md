@@ -1,3 +1,5 @@
+<!-- Artifact revision: README-day18-object-aware-v1 -->
+
 # Aetheris
 
 [![Android CI](https://github.com/maurizioprizzi/aetheris/actions/workflows/android.yml/badge.svg)](https://github.com/maurizioprizzi/aetheris/actions/workflows/android.yml)
@@ -15,6 +17,8 @@
 It combines ARCore tracking, native anchors, spatial raycasting, point-cloud filtering, OpenGL ES 3.0 graphics, and Jetpack Compose to measure distances, calculate approximate three-axis volumes, and estimate object mass from a user-selected material density.
 
 The project explores mobile spatial computing, real-time graphics, Unidirectional Data Flow (UDF), frame-affine ARCore processing, and uncertainty-aware physical modeling.
+
+Its evolving object-aware domain foundation now separates measured geometry, reusable object profiles, suggested materials, and physical estimation strategies. Advanced object-specific calculations and automatic visual recognition remain planned work.
 
 > [!IMPORTANT]
 > Aetheris is an experimental spatial computing system, not a certified metrological instrument or a substitute for a calibrated scale. Results depend on device hardware, camera calibration, lighting, surface texture, ARCore tracking stability, object geometry, placement method, and the selected material density.
@@ -39,6 +43,11 @@ The project explores mobile spatial computing, real-time graphics, Unidirectiona
 | **Sequential three-axis volume** | Implemented | Guided width, height, and depth capture with approximate volume calculation in cubic meters and liters. |
 | **Material-density selection** | Implemented | Explicit material selection using catalogued density and density uncertainty. |
 | **Mass estimation by density** | Implemented | Approximate mass calculation with combined volume and density uncertainty. |
+| **Physical estimation strategies** | Domain implemented | Explicit models for homogeneous solids, occupancy-adjusted volumes, panel assemblies, shells, component compositions, and empirical references. |
+| **Reusable object profiles** | Domain implemented | Validated profiles associate stable identifiers, descriptions, recommended physical strategies, and unconfirmed material suggestions. |
+| **Manual object profile catalog** | Domain implemented | Initial deterministic profiles for homogeneous solids, books, containers, and panel furniture; presentation integration remains pending. |
+| **Object-aware mass calculation** | Planned | Strategy-specific calculations with explicit structural parameters, model provenance, and additional uncertainty. |
+| **Automatic object recognition** | Planned | Ranked visual suggestions with confidence, model version, and mandatory user confirmation or correction. |
 | **World-to-screen projection** | Implemented | Pure Kotlin MVP projection with homogeneous clipping and viewport mapping. |
 | **Floating Compose badge** | Implemented | Reactive screen-space badge following the current measurement midpoint. |
 | **Adaptive measurement reticle** | Implemented | The reticle remains visible above the dynamically measured control panel, and its actual normalized position drives ARCore hit testing. |
@@ -123,6 +132,36 @@ $$u_m = \sqrt{(\rho u_V)^2 + (V u_\rho)^2}$$
 
 The result is an approximation. Hollow objects, mixed materials, irregular geometry, and an incorrect density selection can produce substantial differences from a scale measurement.
 
+The current calculation corresponds specifically to the `HOMOGENEOUS_SOLID` strategy. Other object profiles must not reuse it until their structural parameters and strategy-specific calculations are implemented.
+
+---
+
+## Object-aware estimation foundation
+
+Aetheris now defines a deterministic domain foundation for future object-aware estimation. Reusable profiles describe object archetypes and recommend physical strategies, but they do not represent an observed object and do not confirm its material or construction.
+
+### Physical strategies
+
+| Strategy | Intended physical model | Calculation status |
+| :--- | :--- | :--- |
+| `HOMOGENEOUS_SOLID` | The measured external volume is predominantly occupied by one material. | Implemented through the existing density-based mass use case. |
+| `OCCUPANCY_ADJUSTED` | External volume multiplied by an explicit occupied fraction. | Domain defined; parameters and calculation pending. |
+| `PANEL_ASSEMBLY` | Sum of structural panel volumes derived from dimensions and thicknesses. | Domain defined; parameters and calculation pending. |
+| `SHELL_OR_CONTAINER` | Material volume derived from external and internal geometry. | Domain defined; parameters and calculation pending. |
+| `COMPONENT_COMPOSITION` | Sum of components with potentially different geometries and materials. | Domain defined; parameters and calculation pending. |
+| `EMPIRICAL_REFERENCE` | Traceable reference data with an applicability range and uncertainty. | Domain defined; reference model and calculation pending. |
+
+### Initial manual profiles
+
+| Profile | Recommended strategy | Current material suggestions | Current availability |
+| :--- | :--- | :--- | :--- |
+| Generic homogeneous solid | `HOMOGENEOUS_SOLID` | Wood, polypropylene, aluminum, structural steel, solid glass, and concrete. | Domain catalog; current calculation compatible. |
+| Book | `COMPONENT_COMPOSITION` | None until paper, cardboard, coatings, and adhesives have documented references. | Domain catalog; calculation pending. |
+| Container | `SHELL_OR_CONTAINER` | Polypropylene, aluminum, and solid glass. | Domain catalog; calculation pending. |
+| Panel furniture | `PANEL_ASSEMBLY` | Generic wood as a provisional suggestion. | Domain catalog; MDF and plywood references pending. |
+
+Profile selection is not yet exposed in the Compose interface. Future recognition will produce suggestions rather than silently deciding object type, material, or physical construction.
+
 ---
 
 ## Clean Architecture and project structure
@@ -135,7 +174,7 @@ The pure Kotlin domain is isolated from Android and ARCore APIs. Framework-speci
 | **Data / OpenGL** | `data/opengl` | Camera background and spatial geometry rendering | `BackgroundRenderer`, `SpatialLineRenderer` |
 | **Data / Repository** | `data/repository` | Frame-affine request coordination and reactive spatial state | `SpatialSensorRepositoryImpl` |
 | **Domain / Math** | `domain/math` | Framework-independent spatial line operations | `SpatialLineMath` |
-| **Domain / Models** | `domain/model` | Immutable measurement, geometry, provenance, density, volume, and mass models | `Point3D`, `AnchorPlacement`, `AnchorPlacementSource`, `DistanceMeasurement`, `DimensionMeasurement`, `SpatialDimensions`, `VolumeMeasurement`, `MaterialDensity`, `MaterialDensityCatalog`, `MassEstimate` |
+| **Domain / Models** | `domain/model` | Immutable measurement, geometry, provenance, quality, density, object-profile, strategy, volume, and mass models | `Point3D`, `AnchorPlacement`, `AnchorPlacementSource`, `DistanceMeasurement`, `DimensionMeasurement`, `SpatialDimensions`, `SpatialMeasurementQuality`, `VolumeMeasurement`, `MaterialDensity`, `MaterialDensityCatalog`, `PhysicalEstimationStrategy`, `ObjectProfile`, `ObjectProfileCatalog`, `MassEstimate` |
 | **Domain / Repository** | `domain/repository` | Framework-independent spatial sensor contract | `SpatialSensorRepository` |
 | **Domain / Use cases** | `domain/usecase` | Distance, projection, dimensions, volume, and mass calculations | `CalculateDistanceUseCase`, `ProjectWorldToScreenUseCase`, `EstimateSpatialDimensionsUseCase`, `CalculateVolumeUseCase`, `CalculateMassUseCase` |
 | **Presentation / Components** | `presentation/components` | AR camera integration and reusable Compose interface elements | `ArCameraFeed`, `FloatingMeasurementBadge`, `MaterialDensitySelector` |
@@ -163,7 +202,7 @@ The pure Kotlin domain is isolated from Android and ARCore APIs. Framework-speci
 The current validation baseline includes:
 
 - A passing JVM unit-test suite.
-- Dedicated tests for domain models, mathematical operations, use cases, presentation state, ViewModel behavior, ARCore processors, and repository coordination.
+- Dedicated tests for domain models, mathematical operations, physical strategies, object profiles, catalog integrity, use cases, presentation state, ViewModel behavior, ARCore processors, and repository coordination.
 - Explicit regression coverage for placement-source classification, conventional-hit priority, provenance propagation, confirmed per-axis provenance, adaptive target coordinates, anchor replacement, paused tracking, cleanup, confirmation, and reset.
 - Android Lint passing without blocking errors.
 - Successful clean debug APK assembly.
@@ -198,6 +237,7 @@ Available standalone records include:
 
 - [`ADR-016: Frame-Affine Placement Queue and Instant Placement Fallback`](docs/adr/ADR-016-frame-affine-placement.md)
 - [`ADR-017: Anchor Placement Provenance and Approximation Semantics`](docs/adr/ADR-017-anchor-placement-provenance.md)
+- [`ADR-018: Object-Aware Physical Estimation`](docs/adr/ADR-018-object-aware-physical-estimation.md)
 
 Decisions ADR-001 through ADR-015 were originally recorded in `DEVLOG.md` and are being migrated gradually into standalone documents. The registry reports their migration status explicitly.
 
@@ -255,7 +295,9 @@ chmod +x gradlew
 - Instant Placement begins with an approximate distance and can update pose or apparent scale as tracking improves.
 - Approximate placement is identified in the HUD and preserved with confirmed dimensions, but an explicit acceptance or rejection policy has not yet been defined for mixed-source measurements.
 - The current volume model is a three-axis bounding approximation, not object segmentation or mesh reconstruction.
-- Mass depends directly on the selected density and assumes the measured volume is occupied by that material.
+- The executable mass calculation currently supports only the homogeneous-solid assumption: selected density multiplied by the complete measured volume.
+- Object profiles and advanced physical strategies exist in the pure Kotlin domain but are not yet connected to measurement state or the Compose interface.
+- Books, containers, panel furniture, composite objects, and partially occupied volumes do not yet have executable strategy-specific mass calculations.
 - Hollow, articulated, deformable, reflective, transparent, or low-texture objects can produce inaccurate results.
 - Depth remains disabled on the current test configuration because of native device/runtime failures.
 - 16 KB page-size compatibility is still under explicit release-artifact validation.
@@ -268,6 +310,11 @@ chmod +x gradlew
 - Define an explicit confirmation policy for measurements containing approximate points.
 - Preserve provenance in future persisted and exported measurement records.
 - Document adaptive reticle geometry and end-to-end target consistency in a standalone ADR.
+- Add documented density references and uncertainties for paper, cardboard, MDF, plywood, coatings, and adhesives.
+- Define validated parameter models for occupancy, panels, shells, components, and empirical references.
+- Implement and test one object-aware mass strategy at a time while preserving the existing homogeneous-solid calculation.
+- Expose deterministic manual object-profile selection and explicit assumption confirmation in the Compose workflow.
+- Introduce ranked visual object suggestions only after the manual workflow and physical models are validated.
 - Validate repeated Activity and ARCore session pause/resume cycles.
 - Run controlled measurements against objects with known dimensions, volume, density, and mass.
 - Quantify repeatability, bias, and sensitivity to viewing distance, lighting, and surface texture.
