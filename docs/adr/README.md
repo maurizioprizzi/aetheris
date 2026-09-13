@@ -31,6 +31,7 @@ They are being migrated gradually into standalone ADR documents. Until each migr
 | ADR-015 | Sequential axis capture and uncertainty-aware AABB volume | Implemented | Pending |
 | [ADR-016](ADR-016-frame-affine-placement.md) | Frame-affine placement queue and Instant Placement fallback | Implemented | Available |
 | [ADR-017](ADR-017-anchor-placement-provenance.md) | Anchor placement provenance and approximation semantics | Implemented | Available |
+| [ADR-018](ADR-018-object-aware-physical-estimation.md) | Object-aware physical estimation | Accepted; implementation pending | Available |
 
 ## Available standalone records
 
@@ -49,6 +50,16 @@ Documents the decision to preserve the spatial evidence that produced each ancho
 It defines the classification of planes, feature points, depth points, and Instant Placement; the propagation of that source through repository and presentation state; compatibility rules; approximation semantics; and cleanup invariants.
 
 - [Read ADR-017](ADR-017-anchor-placement-provenance.md)
+
+### ADR-018: Object-Aware Physical Estimation
+
+Documents the phased introduction of object profiles, explicit physical estimation strategies, material evidence, model assumptions, uncertainty propagation, and human confirmation.
+
+It preserves the existing homogeneous-solid mass calculation while defining separate models for occupancy-adjusted volumes, panel assemblies, shells, containers, component compositions, and traceable empirical references.
+
+Automatic visual recognition will be introduced only after the deterministic manual-profile workflow is stable and validated.
+
+- [Read ADR-018](ADR-018-object-aware-physical-estimation.md)
 
 ## ADR lifecycle
 
